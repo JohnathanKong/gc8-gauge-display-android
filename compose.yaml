@@ -1,0 +1,17 @@
+services:
+  android:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    working_dir: /workspace
+    volumes:
+      - ./:/workspace
+      - gradle-cache:/home/android/.gradle
+    stdin_open: true
+    tty: true
+    environment:
+      ANDROID_SDK_ROOT: /opt/android-sdk
+      ANDROID_HOME: /opt/android-sdk
+
+volumes:
+  gradle-cache:
