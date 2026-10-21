@@ -28,7 +28,7 @@ Suggested checkout location: `C:\Users\User\Projects\GC8-Gauge\gc8-gauge-display
 - [x] Initial developer handoff and checklist committed.
 - [x] Commit Docker-based Android SDK/JDK build environment (no Android Studio required).\n- [ ] Build the Docker image successfully on the owner's Windows machine.
 - [ ] Confirm phone make/model and Android version.
-- [ ] Generate a minimal native Kotlin Android application project and commit source/build files.
+- [x] Commit minimal native Kotlin Android application and experimental Google Maps notification listener.\n- [ ] Build Android APK successfully inside Docker on owner's machine.
 - [ ] Build and launch the app on the real phone.
 - [ ] Implement clear permission onboarding for `NotificationListenerService`.
 - [ ] Start Google Maps navigation and inspect **only the user's consented Google Maps notification fields**, locally on device.
@@ -73,13 +73,13 @@ The first build downloads the JDK base image and Android SDK; it can take a whil
 docker compose run --rm android bash
 ```
 
-Once the Kotlin/Gradle project and wrapper have been added, build the APK from the repository root with:
+The Kotlin project is committed. The container includes Gradle 8.9, so no local Gradle installation or wrapper is needed. Build the APK from the repository root with:
 
 ```powershell
-docker compose run --rm android bash ./gradlew --no-daemon assembleDebug
+docker compose run --rm android gradle --no-daemon assembleDebug
 ```
 
-The resulting APK should be under `app/build/outputs/apk/debug/`. **There is no Android app or Gradle wrapper committed yet**, so the APK build command will not work until that next milestone is implemented.
+The resulting APK should be under `app/build/outputs/apk/debug/`. The first app contains a screen that opens Android notification access settings and a Google Maps-only notification listener. It is **not yet built or device-tested**.
 
 ### Phone testing
 
