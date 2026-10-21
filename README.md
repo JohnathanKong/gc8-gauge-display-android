@@ -26,7 +26,7 @@ Suggested checkout location: `C:\Users\User\Projects\GC8-Gauge\gc8-gauge-display
 
 - [x] GitHub repository created by owner.
 - [x] Initial developer handoff and checklist committed.
-- [ ] Create and verify a Docker-based Android SDK/JDK build environment (no Android Studio required).
+- [x] Commit Docker-based Android SDK/JDK build environment (no Android Studio required).\n- [ ] Build the Docker image successfully on the owner's Windows machine.
 - [ ] Confirm phone make/model and Android version.
 - [ ] Generate a minimal native Kotlin Android application project and commit source/build files.
 - [ ] Build and launch the app on the real phone.
@@ -47,3 +47,44 @@ Work **one meaningful step at a time** and keep instructions reproducible. Updat
 ### Fresh chat handoff
 
 > Continue my Android GC8 Digital Companion app. Read the README in `JohnathanKong/gc8-gauge-display-android` and the business requirements in `JohnathanKong/gc8-gauge-display`. The physical Waveshare LVGL dashboard is already running. I use Google Maps on Android and want real navigation instructions on the gauge; full map is a future goal, but arrow/distance/street is acceptable first. Start at the first unchecked milestone and proceed in one small step, committing source and updating docs. My Bluetooth head unit handles all audio and media controls.
+
+## Docker build environment (Windows 11 + Docker Desktop)
+
+The repo now contains `Dockerfile`, `compose.yaml`, `.dockerignore`, `.gitignore` and `docker-build.sh`.
+
+- Base image: Eclipse Temurin JDK 17 (Ubuntu Jammy).
+- Android command-line tools, SDK Platform 35, Build Tools 35.0.0 and platform-tools are installed **inside** the container.
+- The working tree is bind-mounted at `/workspace`; Gradle's cache uses a persistent named volume.
+- Android Studio and host-installed JDK/Android SDK are not required.
+- The image definition is committed, **but a successful Docker build has not yet been verified on the owner's machine**.
+
+### First setup (PowerShell in repository root)
+
+```powershell
+docker compose build
+docker compose run --rm android sdkmanager --version
+```
+
+The first build downloads the JDK base image and Android SDK; it can take a while and requires internet access. The second command should print the installed SDK manager version.
+
+### Open an Android development shell
+
+```powershell
+docker compose run --rm android bash
+```
+
+Once the Kotlin/Gradle project and wrapper have been added, build the APK from the repository root with:
+
+```powershell
+docker compose run --rm android bash ./gradlew --no-daemon assembleDebug
+```
+
+The resulting APK should be under `app/build/outputs/apk/debug/`. **There is no Android app or Gradle wrapper committed yet**, so the APK build command will not work until that next milestone is implemented.
+
+### Phone testing
+
+Install the debug APK on the real Android phone. Initially use APK transfer/sideloading; Windows-to-container USB ADB forwarding is **not** automatically configured. ADB debugging can be set up separately if useful. Android notification access must be explicitly enabled by the owner in phone settings; Google Maps guidance fields are experimental until observed on the device.
+
+### Next step
+
+Run `docker compose build` in the cloned Android repository and report the result. Do not mark the container verified until it completes.
