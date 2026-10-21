@@ -20,15 +20,15 @@ Android companion for the [GC8 Waveshare gauge firmware](https://github.com/John
 
 Suggested checkout location: `C:\Users\User\Projects\GC8-Gauge\gc8-gauge-display-android` (alongside `gc8-gauge-display`).
 
-Use **Android Studio** for native Android app creation/build/debugging. Install the Android SDK and platform tools. Use the real Android phone for the notification experiments; emulator is optional. Do not commit SDK paths, private keystores, device identifiers or tokens.
+**Preferred environment: Docker Desktop + VS Code.** Build the native Kotlin app inside a container with JDK, Android command-line SDK and Gradle. Android Studio is **not required** for builds. The real Android phone will be used for testing; APK sideloading can be used initially, with optional ADB debugging later. Docker does not itself give direct USB/ADB access to a Windows-attached phone. Do not commit SDK paths, private keystores, device identifiers or tokens.
 
 ## Current status
 
 - [x] GitHub repository created by owner.
 - [x] Initial developer handoff and checklist committed.
-- [ ] Install and launch Android Studio on Windows.
+- [ ] Create and verify a Docker-based Android SDK/JDK build environment (no Android Studio required).
 - [ ] Confirm phone make/model and Android version.
-- [ ] Generate a minimal Android Studio Kotlin application project and commit generated source/build files.
+- [ ] Generate a minimal native Kotlin Android application project and commit source/build files.
 - [ ] Build and launch the app on the real phone.
 - [ ] Implement clear permission onboarding for `NotificationListenerService`.
 - [ ] Start Google Maps navigation and inspect **only the user's consented Google Maps notification fields**, locally on device.
