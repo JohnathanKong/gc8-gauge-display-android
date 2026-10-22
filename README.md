@@ -35,7 +35,7 @@ Suggested checkout location: `C:\Users\User\Projects\GC8-Gauge\gc8-gauge-display
 - [x] Record initial captured fields: Google Maps title contains road guidance; subtext contains ETA; text and bigText were empty in sample (owner screenshot, 2026-10-21).\n- [x] Observe Samsung ongoing-activity fields containing candidate distance and instruction text (owner captured `0 m` and `toward Castlemore Ave`; semantics not yet verified).\n- [ ] Validate distance updates with actual movement and decode whether any icon represents a maneuver.
 - [ ] Decide whether this source is sufficient; document fallback if not.
 - [ ] Define versioned guidance message format shared with ESP32 firmware.
-- [ ] Implement BLE transport with pairing/reconnect and head-unit coexistence.
+- [x] Commit Android BLE permission-gated service discovery and GATT connection prototype (not built/device-tested).\n- [ ] Implement ESP32 BLE peripheral and verify Android connects on real hardware.\n- [ ] Implement versioned data writes, automatic reconnect and head-unit coexistence tests.
 - [ ] Render real next-turn guidance on Waveshare.
 - [ ] Test route changes, reroutes, backgrounding, arrival, phone disconnect and reconnection.
 - [ ] Investigate separately sourced full-map rendering **after** turn guidance succeeds.
@@ -121,3 +121,7 @@ Owner's Fold8 diagnostic copy from active Google Maps navigation showed `android
 ### Fold8 Samsung ongoing-activity values — 2026-10-21
 
 Owner confirmed the updated APK ran and shared active Google Maps navigation diagnostics: `android.ongoingActivityNoti.chipExpandedText`, `nowbarPrimaryInfo` and `primaryInfo` each contained `0 m`; `nowbarSecondaryInfo` and `secondaryInfo` each contained `toward Castlemore Ave`. Notification title was `Head toward Castlemore Ave`, subtext `Arrive 8:43 p.m.`. This is **direct evidence of candidate distance and instruction text**, not yet proof that distance changes as navigation progresses or that any icon is the next maneuver. Icon fields are present but not decoded. The output displayed literal `\\n` delimiters; a source fix was committed but **has not yet been built/tested**. Next verify dynamic distance updates in a safe driving/passenger test, and then investigate icon content. Do not interact with the phone while driving.
+
+### BLE bring-up started — 2026-10-21
+
+Android source now includes `GaugeBleClient.kt` and a **Connect to GC8 display (BLE)** button. It requests Android 12+ Nearby Devices permissions, scans 12 seconds for a peripheral advertising service UUID `a8e31c40-6b8f-4b67-a4f0-4a0b75000001`, connects by GATT, and looks for write characteristic `a8e31c40-6b8f-4b67-a4f0-4a0b75000002`. **No ESP32 BLE peripheral firmware is committed yet; current Waveshare firmware will not advertise this service, so scanning cannot find it. No data is transmitted yet.** This is a transport skeleton, not a working end-to-end connection. Source has not been compiled or phone-tested. UUIDs are provisional and must match display firmware. Do not mark BLE functional until hardware tests. The Fold8 is in a basement; `0 m` may reflect poor GPS location, not a verified next-turn distance.
