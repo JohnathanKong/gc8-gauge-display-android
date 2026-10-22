@@ -10,7 +10,7 @@ object MapsCaptureStore {
     private const val PREFS = "maps_capture"
     private const val KEY = "last_notification"
 
-    fun save(context: Context, title: String, text: String, bigText: String, subText: String) {
+    fun save(context: Context, title: String, text: String, bigText: String, subText: String, diagnostics: String) {
         val stamp = SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.getDefault()).format(Date())
         val value = """
             Last captured: $stamp
@@ -19,6 +19,7 @@ object MapsCaptureStore {
             Text: ${text.take(600)}
             Big text: ${bigText.take(600)}
             Subtext: ${subText.take(300)}
+            ${diagnostics.take(2500)}
         """.trimIndent()
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, value).apply()
     }
