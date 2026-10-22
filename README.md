@@ -31,7 +31,7 @@ Suggested checkout location: `C:\Users\User\Projects\GC8-Gauge\gc8-gauge-display
 - [x] Commit minimal native Kotlin Android application and experimental Google Maps notification listener.\n- [x] Build Android APK successfully inside Docker on owner's machine (owner confirmed 2026-10-21).
 - [x] Install and launch the app on the real Android phone (owner confirmed 2026-10-21).
 - [x] Implement notification access settings shortcut and grant notification access on the phone (owner confirmed 2026-10-21).
-- [ ] Start Google Maps navigation and inspect **only the user's consented Google Maps notification fields**, locally on device.
+- [x] Owner started Google Maps navigation (2026-10-21); notification contents not yet inspected.\n- [x] Commit in-app last-notification display, Refresh and Copy Debug Data controls (code committed; build/device test pending).\n- [ ] Build and install updated APK; verify notification capture on actual phone.
 - [ ] Record actual navigation data available (direction/distance/street), conditions and limitations; avoid storing personal route history.
 - [ ] Decide whether this source is sufficient; document fallback if not.
 - [ ] Define versioned guidance message format shared with ESP32 firmware.
@@ -79,15 +79,13 @@ The Kotlin project is committed. The container includes Gradle 8.9, so no local 
 docker compose run --rm android gradle --no-daemon assembleDebug
 ```
 
-The resulting APK should be under `app/build/outputs/apk/debug/`. The first app contains a screen that opens Android notification access settings and a Google Maps-only notification listener. It **builds successfully in Docker (owner-confirmed)** but is **not yet installed or device-tested**.
+The resulting APK should be under `app/build/outputs/apk/debug/`. The **initial APK** was built and installed successfully (owner-confirmed). The **updated source** adds an on-screen capture display, Refresh, and Copy Debug Data, but **has not yet been built or device-tested**.
 
 ### Phone testing
 
 Install the debug APK on the real Android phone. Initially use APK transfer/sideloading; Windows-to-container USB ADB forwarding is **not** automatically configured. ADB debugging can be set up separately if useful. Android notification access must be explicitly enabled by the owner in phone settings; Google Maps guidance fields are experimental until observed on the device.
 
-### Next step
-
-Run `docker compose build` in the cloned Android repository and report the result. Do not mark the container verified until it completes.
+### Next step — updated in-app diagnostics\n\nRun `git pull` then `docker compose run --rm android gradle --no-daemon assembleDebug`. Transfer `app/build/outputs/apk/debug/app-debug.apk` through Google Drive and install it over the existing app (same application ID; debug signing must match the previous build). Open GC8 Companion, start a Google Maps route, return to GC8 Companion and tap **Refresh captured data**. Use **Copy debug data** to share only after reviewing it for private addresses. The app stores only the most recent Google Maps notification in app-private preferences; it does not upload data or transmit BLE.\n\nIf Android rejects the update because the APK signing key differs, preserve the existing app until deciding whether to uninstall it; uninstalling may require re-granting notification access.
 
 ## Documentation verification policy
 
@@ -99,3 +97,7 @@ Run `docker compose build` in the cloned Android repository and report the resul
 ### Phone verification — 2026-10-21
 
 Owner reports the APK is installed and running, notification access was granted, and Google Maps is open. **Not yet confirmed:** active navigation, receipt of Google Maps notifications, extracted maneuver/distance/street fields, or BLE data transmission. Next test requires active turn-by-turn guidance and inspection of `GC8Maps` logcat records; opening Maps without starting navigation is not sufficient.
+
+### Diagnostic UI change — 2026-10-21
+
+Committed a locally stored last-Google-Maps-notification view with capture timestamp, title, text, big text and subtext; added Refresh and Copy buttons so USB/logcat is unnecessary. Also marked the protected notification listener service exported so Android can bind it. **Source committed, build and phone behavior not yet verified.** Data is in app-private SharedPreferences and copied to the clipboard only on user action. This is a diagnostic prototype, not a validated navigation parser; Google Maps notification fields may be missing or stale.
