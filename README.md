@@ -29,8 +29,8 @@ Suggested checkout location: `C:\Users\User\Projects\GC8-Gauge\gc8-gauge-display
 - [x] Commit Docker-based Android SDK/JDK build environment (no Android Studio required).\n- [x] Build the Docker image successfully on the owner's Windows machine (owner confirmed 2026-10-21).
 - [ ] Confirm phone make/model and Android version.
 - [x] Commit minimal native Kotlin Android application and experimental Google Maps notification listener.\n- [x] Build Android APK successfully inside Docker on owner's machine (owner confirmed 2026-10-21).
-- [ ] Build and launch the app on the real phone.
-- [ ] Implement clear permission onboarding for `NotificationListenerService`.
+- [x] Install and launch the app on the real Android phone (owner confirmed 2026-10-21).
+- [x] Implement notification access settings shortcut and grant notification access on the phone (owner confirmed 2026-10-21).
 - [ ] Start Google Maps navigation and inspect **only the user's consented Google Maps notification fields**, locally on device.
 - [ ] Record actual navigation data available (direction/distance/street), conditions and limitations; avoid storing personal route history.
 - [ ] Decide whether this source is sufficient; document fallback if not.
@@ -95,3 +95,7 @@ Run `docker compose build` in the cloned Android repository and report the resul
 - Distinguish **committed**, **compiled**, **installed**, and **verified functioning**; these are not equivalent.
 - Do not claim Google Maps notifications or Bluetooth work until validated on a real Android phone.
 - Update this README and the master business requirements when scope, status or implementation decisions change.
+
+### Phone verification — 2026-10-21
+
+Owner reports the APK is installed and running, notification access was granted, and Google Maps is open. **Not yet confirmed:** active navigation, receipt of Google Maps notifications, extracted maneuver/distance/street fields, or BLE data transmission. Next test requires active turn-by-turn guidance and inspection of `GC8Maps` logcat records; opening Maps without starting navigation is not sufficient.
