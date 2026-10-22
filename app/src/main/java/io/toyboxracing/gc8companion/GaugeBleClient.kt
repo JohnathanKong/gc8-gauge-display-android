@@ -77,7 +77,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             status("Previous test write is still pending.")
             return
         }
-        val payload = "GC8|1|RIGHT|250 m|Main St".toByteArray(Charsets.US_ASCII)
+        val payload = "GC8|1|RIGHT|250 m|Main St|Apex Motoring".toByteArray(Charsets.US_ASCII)
         writePending = true
         try {
             if (Build.VERSION.SDK_INT >= 33) {
