@@ -44,6 +44,42 @@ class MapsNotificationListener : NotificationListenerService() {
             "Large icon present: ${notification.getLargeIcon() != null}\n" +
             "Category: ${notification.category.orEmpty()}"
         MapsCaptureStore.save(this, title, text, bigText, subText, diagnostics)
+
+        val instruction = listOf(title, text, bigText).firstOrNull {
+            val s = it.lowercase()
+            s.contains("turn ") || s.contains("head ") || s.contains("continue ")
+        }.orEmpty()
+        val lower = instruction.lowercase()
+        val maneuver = when {
+            lower.contains("left") -> "LEFT"
+            lower.contains("right") -> "RIGHT"
+            lower.contains("head ") || lower.contains("continue ") -> "STRAIGHT"
+            else -> null
+        }
+        val distanceCandidates = listOfNotNull(
+            extras.getString("android.ongoingActivityNoti.primaryInfo"),
+            extras.getString("android.ongoingActivityNoti.nowbarPrimaryInfo"),
+            extras.getString("android.ongoingActivityNoti.chipExpandedText"),
+            text
+        )
+        val distance = distanceCandidates.firstNotNullOfOrNull { candidate ->
+            candidate.split(" ").windowed(2).firstNotNullOfOrNull { pair ->
+                val number = pair[0].replace(",", ".")
+                val unit = pair[1].lowercase()
+                if (number.toDoubleOrNull() != null && unit in listOf("m", "km", "ft", "mi"))
+                    "${pair[0]} ${pair[1]}" else null
+            }
+        }
+        val street = listOf(" onto ", " toward ", " on ", " to ")
+            .firstNotNullOfOrNull { token ->
+                val index = lower.indexOf(token)
+                if (index >= 0) instruction.substring(index + token.length).trim() else null
+            }
+        val destination = getSharedPreferences("gc8_navigation", MODE_PRIVATE)
+            .getString("destination", "").orEmpty()
+        if (maneuver != null && distance != null && !street.isNullOrBlank()) {
+            GaugeBleClient.forwardMapsNavigation(maneuver, distance, street, destination)
+        }
         Log.i("GC8Maps", "Google Maps notification captured (see app for details)")
     }
 
