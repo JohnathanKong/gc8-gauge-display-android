@@ -19,6 +19,7 @@ import android.text.method.ScrollingMovementMethod
 
 class MainActivity : Activity() {
     private lateinit var output: TextView
+    private lateinit var ble: GaugeBleClient
     private val updates = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) { refresh() }
     }
@@ -74,6 +75,13 @@ class MainActivity : Activity() {
                 }
             }
         })
+        val bleStatus = TextView(this).apply { text = "BLE: not connected"; textSize = 16f }
+        ble = GaugeBleClient(this) { bleStatus.text = "BLE: $it" }
+        root.addView(Button(this).apply {
+            text = "Connect to GC8 display (BLE)"
+            setOnClickListener { ble.connect() }
+        })
+        root.addView(bleStatus)
         root.addView(Button(this).apply {
             text = "Notification access settings"
             setOnClickListener { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
@@ -97,6 +105,11 @@ class MainActivity : Activity() {
         root.addView(ScrollView(this).apply { addView(output) })
         setContentView(root)
         refresh()
+    }
+
+    override fun onDestroy() {
+        if (::ble.isInitialized) ble.close()
+        super.onDestroy()
     }
 
     override fun onResume() {
