@@ -31,8 +31,8 @@ Suggested checkout location: `C:\Users\User\Projects\GC8-Gauge\gc8-gauge-display
 - [x] Commit minimal native Kotlin Android application and experimental Google Maps notification listener.\n- [x] Build Android APK successfully inside Docker on owner's machine (owner confirmed 2026-10-21).
 - [x] Install and launch the app on the real Android phone (owner confirmed 2026-10-21).
 - [x] Implement notification access settings shortcut and grant notification access on the phone (owner confirmed 2026-10-21).
-- [x] Owner started Google Maps navigation (2026-10-21); notification contents not yet inspected.\n- [x] Commit in-app last-notification display, Refresh and Copy Debug Data controls (code committed; build/device test pending).\n- [ ] Build and install updated APK; verify notification capture on actual phone.
-- [ ] Record actual navigation data available (direction/distance/street), conditions and limitations; avoid storing personal route history.
+- [x] Owner started Google Maps navigation (2026-10-21); notification contents not yet inspected.\n- [x] Commit in-app last-notification display, Refresh and Copy Debug Data controls (code committed; build/device test pending).\n- [x] Build and install updated APK; verify notification capture on actual phone (owner screenshot, 2026-10-21).
+- [x] Record initial captured fields: Google Maps title contains road guidance; subtext contains ETA; text and bigText were empty in sample (owner screenshot, 2026-10-21).\n- [ ] Verify whether maneuver icon, distance to next turn, and additional fields can be extracted; current screenshot does not prove availability.
 - [ ] Decide whether this source is sufficient; document fallback if not.
 - [ ] Define versioned guidance message format shared with ESP32 firmware.
 - [ ] Implement BLE transport with pairing/reconnect and head-unit coexistence.
@@ -105,3 +105,7 @@ Committed a locally stored last-Google-Maps-notification view with capture times
 ### Build failure and fix — 2026-10-21
 
 The owner attempted to build the in-app diagnostics update and reported a Kotlin compile failure at `MainActivity.kt:49:102`: `Button` was passed where `Context` was required. Root cause: inside the button's `apply` block, `this` refers to the `Button`. Fixed `MapsCaptureStore.read(this)` to `MapsCaptureStore.read(this@MainActivity)` in commit `5f95bdb7`. **Fix is committed but rebuild success is not yet confirmed.** Re-run `git pull` and `docker compose run --rm android gradle --no-daemon assembleDebug`; no Docker image rebuild needed.
+
+### Verified phone notification capture — 2026-10-21
+
+Owner supplied screenshot of updated GC8 Companion on Samsung Android phone, while Google Maps navigation was active. App UI showed capture timestamp `2026-10-21 20:23:59`, notification title `Head toward Fred McLaren Blvd`, empty `Text` and `Big text`, and `Subtext: Arrive 9:02 p.m.`. Google Maps floating navigation window visibly showed a straight-ahead maneuver icon and route map, **but this does not establish that either graphic is accessible to the listener**. Verified: app update installed, local notification capture displayed in UI. Not verified: maneuver/distance data extraction, updates during route progress, BLE, ESP32 display. Do not equate the displayed ETA with distance to next turn. Next investigate notification extras and any icon fields without assuming Google Maps offers a stable navigation API.
