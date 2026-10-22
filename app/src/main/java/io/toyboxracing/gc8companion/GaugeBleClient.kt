@@ -19,7 +19,8 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     private val manager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private var scanning = false
     private var gatt: BluetoothGatt? = null
-    private var writable: BluetoothGattCharacteristic? = null
+    @Volatile private var writable: BluetoothGattCharacteristic? = null
+    @Volatile private var writePending = false
     private fun status(value: String) = activity.runOnUiThread { report(value) }
 
     fun connect() {
@@ -65,13 +66,62 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         }
         override fun onScanFailed(errorCode: Int) { scanning = false; status("Scan failed: $errorCode") }
     }
+    fun sendTestNavigation() {
+        val connection = gatt
+        val characteristic = writable
+        if (connection == null || characteristic == null) {
+            status("Connect to GC8 display before sending.")
+            return
+        }
+        if (writePending) {
+            status("Previous test write is still pending.")
+            return
+        }
+        val payload = "GC8|1|RIGHT|250 m|Main St".toByteArray(Charsets.US_ASCII)
+        writePending = true
+        try {
+            if (Build.VERSION.SDK_INT >= 33) {
+                val result = connection.writeCharacteristic(
+                    characteristic, payload, BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                )
+                if (result != BluetoothStatusCodes.SUCCESS) {
+                    writePending = false
+                    status("BLE write could not start (code $result).")
+                } else status("Sending test navigation…")
+            } else {
+                @Suppress("DEPRECATION")
+                characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
+                @Suppress("DEPRECATION")
+                characteristic.value = payload
+                @Suppress("DEPRECATION")
+                val started = connection.writeCharacteristic(characteristic)
+                if (!started) {
+                    writePending = false
+                    status("BLE write could not start.")
+                } else status("Sending test navigation…")
+            }
+        } catch (_: SecurityException) {
+            writePending = false
+            status("Nearby devices permission missing.")
+        }
+    }
+
     private val gattCallback = object : BluetoothGattCallback() {
+        override fun onCharacteristicWrite(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, statusCode: Int) {
+            writePending = false
+            if (characteristic.uuid == WRITE_UUID) {
+                status(if (statusCode == BluetoothGatt.GATT_SUCCESS)
+                    "Test navigation accepted by BLE GATT; check Waveshare screen."
+                    else "Test navigation write failed (status $statusCode).")
+            }
+        }
         override fun onConnectionStateChange(g: BluetoothGatt, statusCode: Int, newState: Int) {
             if (statusCode == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 status("Connected; discovering services…")
                 try { g.discoverServices() } catch (_: SecurityException) { status("Permission missing.") }
             } else {
                 writable = null
+                writePending = false
                 status("Disconnected (status $statusCode)")
                 try { g.close() } catch (_: SecurityException) {}
             }
