@@ -46,7 +46,7 @@ class MainActivity : Activity() {
             text = "Copy debug data"
             setOnClickListener {
                 val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                manager.setPrimaryClip(ClipData.newPlainText("GC8 Maps debug", MapsCaptureStore.read(this)))
+                manager.setPrimaryClip(ClipData.newPlainText("GC8 Maps debug", MapsCaptureStore.read(this@MainActivity)))
                 Toast.makeText(this@MainActivity, "Copied. Review for private addresses before sharing.", Toast.LENGTH_LONG).show()
             }
         })
