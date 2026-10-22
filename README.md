@@ -26,9 +26,9 @@ Suggested checkout location: `C:\Users\User\Projects\GC8-Gauge\gc8-gauge-display
 
 - [x] GitHub repository created by owner.
 - [x] Initial developer handoff and checklist committed.
-- [x] Commit Docker-based Android SDK/JDK build environment (no Android Studio required).\n- [ ] Build the Docker image successfully on the owner's Windows machine.
+- [x] Commit Docker-based Android SDK/JDK build environment (no Android Studio required).\n- [x] Build the Docker image successfully on the owner's Windows machine (owner confirmed 2026-10-21).
 - [ ] Confirm phone make/model and Android version.
-- [x] Commit minimal native Kotlin Android application and experimental Google Maps notification listener.\n- [ ] Build Android APK successfully inside Docker on owner's machine.
+- [x] Commit minimal native Kotlin Android application and experimental Google Maps notification listener.\n- [x] Build Android APK successfully inside Docker on owner's machine (owner confirmed 2026-10-21).
 - [ ] Build and launch the app on the real phone.
 - [ ] Implement clear permission onboarding for `NotificationListenerService`.
 - [ ] Start Google Maps navigation and inspect **only the user's consented Google Maps notification fields**, locally on device.
@@ -56,7 +56,7 @@ The repo now contains `Dockerfile`, `compose.yaml`, `.dockerignore`, `.gitignore
 - Android command-line tools, SDK Platform 35, Build Tools 35.0.0 and platform-tools are installed **inside** the container.
 - The working tree is bind-mounted at `/workspace`; Gradle's cache uses a persistent named volume.
 - Android Studio and host-installed JDK/Android SDK are not required.
-- The image definition is committed, **but a successful Docker build has not yet been verified on the owner's machine**.
+- **Owner confirmed the Docker environment and APK build worked on Windows on 2026-10-21.** This does not yet verify app installation, notification permission, Google Maps data capture, or BLE.
 
 ### First setup (PowerShell in repository root)
 
@@ -79,7 +79,7 @@ The Kotlin project is committed. The container includes Gradle 8.9, so no local 
 docker compose run --rm android gradle --no-daemon assembleDebug
 ```
 
-The resulting APK should be under `app/build/outputs/apk/debug/`. The first app contains a screen that opens Android notification access settings and a Google Maps-only notification listener. It is **not yet built or device-tested**.
+The resulting APK should be under `app/build/outputs/apk/debug/`. The first app contains a screen that opens Android notification access settings and a Google Maps-only notification listener. It **builds successfully in Docker (owner-confirmed)** but is **not yet installed or device-tested**.
 
 ### Phone testing
 
@@ -88,3 +88,10 @@ Install the debug APK on the real Android phone. Initially use APK transfer/side
 ### Next step
 
 Run `docker compose build` in the cloned Android repository and report the result. Do not mark the container verified until it completes.
+
+## Documentation verification policy
+
+- Record the evidence for each completed checkbox (e.g. owner-confirmed Docker build vs observed physical phone behavior).
+- Distinguish **committed**, **compiled**, **installed**, and **verified functioning**; these are not equivalent.
+- Do not claim Google Maps notifications or Bluetooth work until validated on a real Android phone.
+- Update this README and the master business requirements when scope, status or implementation decisions change.
