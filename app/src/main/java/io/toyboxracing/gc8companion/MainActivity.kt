@@ -7,6 +7,9 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.provider.Settings
+import android.net.Uri
+import android.widget.EditText
+import android.view.inputmethod.InputMethodManager
 import android.widget.Button
 import android.widget.LinearLayout
 import android.widget.ScrollView
@@ -31,8 +34,45 @@ class MainActivity : Activity() {
             textSize = 23f
         })
         root.addView(TextView(this).apply {
-            text = "Start a route in Google Maps. Return here to inspect the most recent Google Maps notification. This data stays on your phone unless you copy it."
+            text = "Search for a destination or use your phone's voice assistant, then tap Start in Google Maps. Return here to inspect the most recent Google Maps notification. This data stays on your phone unless you copy it."
             textSize = 15f
+        })
+        val destination = EditText(this).apply {
+            hint = "Destination (address or place)"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_SENTENCES
+            setSingleLine(true)
+        }
+        root.addView(destination)
+        root.addView(Button(this).apply {
+            text = "Find destination in Google Maps"
+            setOnClickListener {
+                val query = destination.text.toString().trim()
+                if (query.isEmpty()) {
+                    Toast.makeText(this@MainActivity, "Enter a destination first.", Toast.LENGTH_SHORT).show()
+                } else {
+                    val uri = Uri.parse("geo:0,0?q=" + Uri.encode(query))
+                    val intent = Intent(Intent.ACTION_VIEW, uri).apply {
+                        setPackage("com.google.android.apps.maps")
+                    }
+                    try {
+                        startActivity(intent)
+                    } catch (e: android.content.ActivityNotFoundException) {
+                        Toast.makeText(this@MainActivity, "Google Maps is not available.", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Ask voice assistant"
+            setOnClickListener {
+                try {
+                    startActivity(Intent(Intent.ACTION_VOICE_COMMAND))
+                } catch (e: android.content.ActivityNotFoundException) {
+                    Toast.makeText(this@MainActivity, "No voice assistant supports this shortcut on this phone.", Toast.LENGTH_LONG).show()
+                } catch (e: SecurityException) {
+                    Toast.makeText(this@MainActivity, "Voice assistant launch was blocked.", Toast.LENGTH_LONG).show()
+                }
+            }
         })
         root.addView(Button(this).apply {
             text = "Notification access settings"
