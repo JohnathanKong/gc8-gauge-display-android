@@ -27,7 +27,7 @@ Suggested checkout location: `C:\Users\User\Projects\GC8-Gauge\gc8-gauge-display
 - [x] GitHub repository created by owner.
 - [x] Initial developer handoff and checklist committed.
 - [x] Commit Docker-based Android SDK/JDK build environment (no Android Studio required).\n- [x] Build the Docker image successfully on the owner's Windows machine (owner confirmed 2026-10-21).
-- [ ] Confirm phone make/model and Android version.
+- [x] Confirm phone model: Samsung Galaxy Z Fold8 (owner confirmed); Android OS version not independently checked.
 - [x] Commit minimal native Kotlin Android application and experimental Google Maps notification listener.\n- [x] Build Android APK successfully inside Docker on owner's machine (owner confirmed 2026-10-21).
 - [x] Install and launch the app on the real Android phone (owner confirmed 2026-10-21).
 - [x] Implement notification access settings shortcut and grant notification access on the phone (owner confirmed 2026-10-21).
@@ -113,3 +113,7 @@ Owner supplied screenshot of updated GC8 Companion on Samsung Android phone, whi
 ### Destination entry and richer diagnostics — 2026-10-21
 
 **Committed, not yet compiled or tested on the phone:** Destination text field opens a Google Maps `geo:0,0?q=...` search; user must select destination and start navigation in Maps. Optional **Ask voice assistant** button sends Android `ACTION_VOICE_COMMAND` and depends on installed/default assistant support (Google Assistant or Gemini not guaranteed; this is not an integrated voice destination parser). The diagnostics now list notification extras **key names and Java value types** and report presence of small/large icons, without serializing unknown objects. This does **not** imply a maneuver icon or next-turn distance is exposed. Rebuild via `git pull` and `docker compose run --rm android gradle --no-daemon assembleDebug`, then transfer the new APK through Google Drive. Validate search, assistant shortcut, and notification metadata separately on device; do not mark verified until owner confirms. Do not operate destination entry while driving.
+
+### Samsung notification evidence and voice shortcut — 2026-10-21
+
+Owner's Fold8 diagnostic copy from active Google Maps navigation showed `android.title = Head toward Castlemore Ave`, `android.subText = Arrive 8:39 p.m.`, empty `android.text`/`android.bigText`, and notification category `navigation`. Extra keys included Samsung `android.ongoingActivityNoti.*` fields (`primaryInfo`, `secondaryInfo`, `nowbarPrimaryInfo`, `nowbarSecondaryInfo`, `chipExpandedText`) plus icon objects, progress points/segments and a tracker icon. **Their values and semantics are not yet verified.** New code now reads only selected Samsung `String` fields into the local diagnostics view (committed, **not yet compiled or phone-tested**). Progress metadata and icon presence do not prove a maneuver or distance is accessible. User reported the generic `ACTION_VOICE_COMMAND` shortcut opened Bixby; do not describe it as a Gemini-specific shortcut. Plan to replace generic voice launch with a user-controlled speech-to-destination path; not yet implemented. User wants Gemini/Google Maps, not Bixby.
