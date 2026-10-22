@@ -27,7 +27,19 @@ class MapsNotificationListener : NotificationListenerService() {
             "$key (${value?.javaClass?.simpleName ?: "null"})"
         }
         val notification = sbn.notification
-        val diagnostics = "Extras keys/types:\n$diagnosticFields\n" +
+        val samsungKeys = listOf(
+            "android.ongoingActivityNoti.chipExpandedText",
+            "android.ongoingActivityNoti.nowbarPrimaryInfo",
+            "android.ongoingActivityNoti.nowbarSecondaryInfo",
+            "android.ongoingActivityNoti.primaryInfo",
+            "android.ongoingActivityNoti.secondaryInfo",
+            "android.shortCriticalText"
+        )
+        val samsungValues = samsungKeys.joinToString("\\n") { key ->
+            val value = extras.getString(key)
+            "$key: ${value?.take(300) ?: "(absent)"}"
+        }
+        val diagnostics = "Samsung navigation strings:\\n$samsungValues\\n\\nExtras keys/types:\n$diagnosticFields\n" +
             "Small icon present: ${notification.smallIcon != null}\n" +
             "Large icon present: ${notification.getLargeIcon() != null}\n" +
             "Category: ${notification.category.orEmpty()}"
