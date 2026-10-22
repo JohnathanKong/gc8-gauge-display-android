@@ -14,8 +14,13 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     companion object {
         val SERVICE_UUID: UUID = UUID.fromString("a8e31c40-6b8f-4b67-a4f0-4a0b75000001")
         val WRITE_UUID: UUID = UUID.fromString("a8e31c40-6b8f-4b67-a4f0-4a0b75000002")
+        @Volatile private var activeClient: GaugeBleClient? = null
+        fun forwardMapsNavigation(maneuver: String, distance: String, street: String, destination: String) {
+            activeClient?.sendLiveNavigation(maneuver, distance, street, destination)
+        }
     }
     private val handler = Handler(Looper.getMainLooper())
+    init { activeClient = this }
     private val manager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private var scanning = false
     private var gatt: BluetoothGatt? = null
@@ -66,7 +71,23 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         }
         override fun onScanFailed(errorCode: Int) { scanning = false; status("Scan failed: $errorCode") }
     }
+    fun sendLiveNavigation(maneuver: String, distance: String, street: String, destination: String) {
+        handler.post {
+            fun clean(s: String, max: Int) = s.replace("|", " ").filter { it.code in 32..126 }.trim().take(max)
+            if (maneuver !in listOf("LEFT", "RIGHT", "STRAIGHT")) return@post
+            val dist = clean(distance, 19)
+            val road = clean(street, 47)
+            val dest = clean(destination, 47)
+            if (dist.isEmpty() || road.isEmpty()) return@post
+            sendPayload("GC8|1|$maneuver|$dist|$road|$dest", false)
+        }
+    }
+
     fun sendTestNavigation() {
+        sendPayload("GC8|1|RIGHT|250 m|Main St|Apex Motoring|DEMO:14.7", true)
+    }
+
+    private fun sendPayload(message: String, isTest: Boolean) {
         val connection = gatt
         val characteristic = writable
         if (connection == null || characteristic == null) {
@@ -77,7 +98,8 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             status("Previous test write is still pending.")
             return
         }
-        val payload = "GC8|1|RIGHT|250 m|Main St|Apex Motoring|DEMO:14.7".toByteArray(Charsets.US_ASCII)
+        val payload = message.toByteArray(Charsets.US_ASCII)
+        if (payload.size > 100) return
         writePending = true
         try {
             if (Build.VERSION.SDK_INT >= 33) {
@@ -87,7 +109,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 if (result != BluetoothStatusCodes.SUCCESS) {
                     writePending = false
                     status("BLE write could not start (code $result).")
-                } else status("Sending test navigation + DEMO AFR 14.7…")
+                } else if (isTest) status("Sending test navigation + DEMO AFR 14.7…")
             } else {
                 @Suppress("DEPRECATION")
                 characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
@@ -143,6 +165,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         try { manager.adapter?.bluetoothLeScanner?.stopScan(scanCallback) } catch (_: SecurityException) {}
     }
     fun close() {
+        if (activeClient === this) activeClient = null
         stopScan()
         try { gatt?.disconnect(); gatt?.close() } catch (_: SecurityException) {}
         gatt = null
