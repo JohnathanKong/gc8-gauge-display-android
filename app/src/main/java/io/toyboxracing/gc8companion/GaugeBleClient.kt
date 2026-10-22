@@ -77,7 +77,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             status("Previous test write is still pending.")
             return
         }
-        val payload = "GC8|1|RIGHT|250 m|Main St|Apex Motoring".toByteArray(Charsets.US_ASCII)
+        val payload = "GC8|1|RIGHT|250 m|Main St|Apex Motoring|DEMO:14.7".toByteArray(Charsets.US_ASCII)
         writePending = true
         try {
             if (Build.VERSION.SDK_INT >= 33) {
@@ -87,7 +87,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 if (result != BluetoothStatusCodes.SUCCESS) {
                     writePending = false
                     status("BLE write could not start (code $result).")
-                } else status("Sending test navigation…")
+                } else status("Sending test navigation + DEMO AFR 14.7…")
             } else {
                 @Suppress("DEPRECATION")
                 characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
@@ -111,7 +111,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             writePending = false
             if (characteristic.uuid == WRITE_UUID) {
                 status(if (statusCode == BluetoothGatt.GATT_SUCCESS)
-                    "Test navigation accepted by BLE GATT; check Waveshare screen."
+                    "Test navigation + DEMO AFR accepted by BLE GATT; check Waveshare screen."
                     else "Test navigation write failed (status $statusCode).")
             }
         }
