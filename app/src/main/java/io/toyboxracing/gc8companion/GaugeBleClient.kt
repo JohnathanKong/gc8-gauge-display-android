@@ -118,13 +118,19 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         override fun onConnectionStateChange(g: BluetoothGatt, statusCode: Int, newState: Int) {
             if (statusCode == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 status("Connected; discovering services…")
-                try { g.discoverServices() } catch (_: SecurityException) { status("Permission missing.") }
+                try {
+                    if (!g.requestMtu(185)) g.discoverServices()
+                } catch (_: SecurityException) { status("Permission missing.") }
             } else {
                 writable = null
                 writePending = false
                 status("Disconnected (status $statusCode)")
                 try { g.close() } catch (_: SecurityException) {}
             }
+        }
+        override fun onMtuChanged(g: BluetoothGatt, mtu: Int, statusCode: Int) {
+            status("BLE MTU: $mtu; discovering services…")
+            try { g.discoverServices() } catch (_: SecurityException) { status("Permission missing.") }
         }
         override fun onServicesDiscovered(g: BluetoothGatt, statusCode: Int) {
             writable = g.getService(SERVICE_UUID)?.getCharacteristic(WRITE_UUID)
