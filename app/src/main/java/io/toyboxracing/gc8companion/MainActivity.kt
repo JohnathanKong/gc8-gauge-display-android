@@ -51,6 +51,8 @@ class MainActivity : Activity() {
                 if (query.isEmpty()) {
                     Toast.makeText(this@MainActivity, "Enter a destination first.", Toast.LENGTH_SHORT).show()
                 } else {
+                    getSharedPreferences("gc8_navigation", MODE_PRIVATE)
+                        .edit().putString("destination", query).apply()
                     val uri = Uri.parse("geo:0,0?q=" + Uri.encode(query))
                     val intent = Intent(Intent.ACTION_VIEW, uri).apply {
                         setPackage("com.google.android.apps.maps")
