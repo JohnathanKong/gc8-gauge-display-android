@@ -83,6 +83,10 @@ class MainActivity : Activity() {
         })
         root.addView(bleStatus)
         root.addView(Button(this).apply {
+            text = "Send test navigation to Waveshare"
+            setOnClickListener { ble.sendTestNavigation() }
+        })
+        root.addView(Button(this).apply {
             text = "Notification access settings"
             setOnClickListener { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         })
