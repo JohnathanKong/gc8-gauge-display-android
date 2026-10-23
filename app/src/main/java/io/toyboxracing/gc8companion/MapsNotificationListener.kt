@@ -39,6 +39,17 @@ class MapsNotificationListener : NotificationListenerService() {
 
     private var lastNotificationAt = 0L
     private val watchdog = android.os.Handler(android.os.Looper.getMainLooper())
+    // Maps often removes/reposts its navigation notification while rerouting.
+    // Confirm route loss after a short grace period to avoid flashing CLEAR.
+    private val confirmRouteEnded = Runnable {
+        val stillNavigating = activeNotifications?.any {
+            it.packageName == MAPS_PACKAGE && isNavigation(it)
+        } ?: false
+        if (navigationActive && !stillNavigating) {
+            endRoute("Navigation notification not restored after removal")
+            MapsCaptureStore.setBridgeStatus(this, "Google Maps navigation ended")
+        }
+    }
     private val watchdogTask = object : Runnable {
         override fun run() {
             if (lastNotificationAt > 0L) {
@@ -60,6 +71,7 @@ class MapsNotificationListener : NotificationListenerService() {
     override fun onDestroy() {
         if (instance === this) instance = null
         watchdog.removeCallbacks(watchdogTask)
+        watchdog.removeCallbacks(confirmRouteEnded)
         DriveLog.record(this, "LISTENER", "destroyed")
         super.onDestroy()
     }
@@ -84,8 +96,8 @@ class MapsNotificationListener : NotificationListenerService() {
         DriveLog.record(this, "MAPS_REMOVED",
             "wasNavigation=$wasNavigation stillNavigating=$stillNavigating")
         if (navigationActive && wasNavigation && !stillNavigating) {
-            endRoute("Last navigation notification removed")
-            MapsCaptureStore.setBridgeStatus(this, "Google Maps navigation ended")
+            watchdog.removeCallbacks(confirmRouteEnded)
+            watchdog.postDelayed(confirmRouteEnded, 900L)
         }
     }
 
@@ -93,6 +105,7 @@ class MapsNotificationListener : NotificationListenerService() {
         val title = sbn.notification.extras
             .getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty().trim()
         if (!isNavigation(sbn)) return
+        watchdog.removeCallbacks(confirmRouteEnded)
         val starting = title.startsWith("Starting navigation", ignoreCase = true)
         if (starting || !navigationActive) beginRoute()
         lastNavigationKey = sbn.key
