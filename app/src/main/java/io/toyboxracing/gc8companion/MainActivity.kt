@@ -89,6 +89,21 @@ class MainActivity : Activity() {
             setOnClickListener { ble.sendTestNavigation() }
         })
         root.addView(Button(this).apply {
+            text = "Clear display / open Maps to end route"
+            setOnClickListener {
+                GaugeBleClient.clearNavigation()
+                DriveLog.record(this@MainActivity, "USER_CLEAR",
+                    "Clear sent to display; Maps route must be stopped in Google Maps")
+                try {
+                    val maps = packageManager.getLaunchIntentForPackage("com.google.android.apps.maps")
+                    if (maps != null) startActivity(maps)
+                    else Toast.makeText(this@MainActivity, "Open Google Maps to stop navigation.", Toast.LENGTH_LONG).show()
+                } catch (_: Exception) {
+                    Toast.makeText(this@MainActivity, "Open Google Maps to stop navigation.", Toast.LENGTH_LONG).show()
+                }
+            }
+        })
+        root.addView(Button(this).apply {
             text = "Notification access settings"
             setOnClickListener { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         })
