@@ -30,6 +30,11 @@ object MapsDestinationCapture {
         // Maps sends multiple content events from the same place screen.
         // Do not reset the armed Start or renew freshness on each event.
         if (name == oldName && address == oldAddress) return
+        if (name == oldName && oldAddress.isNullOrBlank() && address.isNotBlank()) {
+            p.edit().putString("candidate_address", address).apply()
+            DriveLog.record(context, "DEST_ENRICHED", "$name | $address")
+            return
+        }
         // A late update from the same place sheet must not overwrite a
         // destination that was just confirmed during the Start transition.
         if (name == p.getString("confirmed_name", "") &&
@@ -69,7 +74,7 @@ object MapsDestinationCapture {
         if (armed == 0L || now - armed !in 0..MAX_ARMED_MS) return
         val name = p.getString("candidate_name", "").orEmpty()
         val address = p.getString("candidate_address", "").orEmpty()
-        if (name.isBlank() || address.isBlank()) {
+        if (name.isBlank()) {
             p.edit().remove("armed_at").apply()
             return
         }
@@ -83,12 +88,18 @@ object MapsDestinationCapture {
         MapsNotificationListener.destinationChanged()
     }
 
-    fun confirmed(context: Context): String =
-        prefs(context).getString("confirmed_address", "").orEmpty()
+    fun confirmed(context: Context): String {
+        val p = prefs(context)
+        return p.getString("confirmed_name", "").orEmpty().ifBlank {
+            p.getString("confirmed_address", "").orEmpty()
+        }
+    }
 
     fun clearRoute(context: Context, reason: String = "Navigation notification ended") {
         val p = prefs(context)
-        val hasData = !p.getString("confirmed_address", "").isNullOrBlank() ||
+        val hasData = !p.getString("confirmed_name", "").isNullOrBlank() ||
+            !p.getString("confirmed_address", "").isNullOrBlank() ||
+            !p.getString("candidate_name", "").isNullOrBlank() ||
             !p.getString("candidate_address", "").isNullOrBlank() ||
             p.getLong("armed_at", 0L) != 0L
         if (!hasData) return
