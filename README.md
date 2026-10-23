@@ -207,3 +207,16 @@ Owner chose to **retain the official Google Maps phone app** (not replace it wit
 - Accessibility listens for a Google Maps `Start` click and confirms a recent candidate only if the navigation step-cue screen appears within 20 seconds. Candidates expire after two minutes for Start association. The confirmed address is forwarded in existing notification-driven BLE payloads; route removal clears it.
 - No change to maneuver/street/distance parsing or firmware protocol. The Waveshare destination field currently has limited width and may truncate full addresses. Android BLE sanitization also caps the destination at 47 characters.
 - **Not compiled or hardware-tested.** Accessibility click events and Google Maps UI structure are not guaranteed. If `DEST_CANDIDATE` appears but `DEST_START` or `DEST_CONFIRMED` does not, export drive diagnostics after parking; the destination remains blank rather than guessing. Also test a generic search with multiple results, switching between places, and ending navigation. Do not interact with the companion while driving.
+
+### 2026-10-23 — diagnosed destination confirmation failure from actual drive log
+
+Actual log showed `DEST_CANDIDATE` for Mackenzie Health with its full address, followed by `DEST_START`, but no `DEST_CONFIRMED`. Samsung Maps navigation was exposing `navigation_time_remaining_label` alongside `Close navigation`, while the accessibility reader only recognized `navigation_stepcuefirstline_textbox`. Notification-to-BLE still forwarded accurate maneuver/distance but with empty destination. The log proves destination *capture* and Start detection worked; the missing link was the transition recognition.
+
+Fix:
+- Recognize Samsung's active navigation chrome using a paired arrival-time + Close-navigation pattern (also legacy stepcue and paired navigation FAB patterns). Process the root on the Start-click event itself, because the navigation screen can appear before the click event is handled.
+- Stop refreshing an unchanged destination candidate every five seconds; the old behavior could clear the armed Start or recently confirmed destination.
+- Consume a candidate once it is confirmed, require a freshly selected place for the next route, and clear all retained destination state when Google Maps returns to its home UI (search omnibox + Explore). Do not reuse the old confirmed destination if Start occurs without a fresh candidate.
+- Destination confirmation signals the existing BLE bridge to resend immediately using its last valid maneuver, instead of waiting for the next Maps notification.
+- **No changes to notification maneuver/distance/street parsing, BLE protocol, firmware, or display rendering.**
+
+Current revision is **not Android-compiled or device-tested**. First verify that `DEST_CANDIDATE`, `DEST_START`, `DEST_CONFIRMED`, and `DEST_FORWARD` appear in that order for Mackenzie Health. Then stop the route, return to Maps home, select a different place, and confirm the old destination does not reappear. The sample log screenshot's navigation indicators satisfy the new fallback predicate in a local text check; this is not a replacement for a Fold8 test.
