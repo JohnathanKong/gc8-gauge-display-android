@@ -17,7 +17,7 @@ class MapsDestinationAccessibility : AccessibilityService() {
         if (event?.packageName?.toString() != "com.google.android.apps.maps") return
         if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
             val clicked = (event.text.joinToString(" ") + " " +
-                event.contentDescription.orEmpty()).trim()
+                (event.contentDescription?.toString() ?: "")).trim()
             if (clicked.equals("Start", ignoreCase = true) ||
                 clicked.startsWith("Start ", ignoreCase = true)) {
                 MapsDestinationCapture.armStart(this)
