@@ -45,7 +45,7 @@ object MapsDestinationCapture {
             .remove("armed_at").remove("confirmed_name").remove("confirmed_address")
             .apply()
         DriveLog.record(context, "DEST_CANDIDATE", "$name | $address")
-        MapsNotificationListener.destinationChanged()
+        MapsNotificationListener.routeChanged()
     }
 
     fun armStart(context: Context) {
@@ -58,7 +58,7 @@ object MapsDestinationCapture {
                 .remove("candidate_name").remove("candidate_address")
                 .remove("candidate_at").remove("armed_at").apply()
             DriveLog.record(context, "DEST_IGNORED", "Start without fresh selected place")
-            MapsNotificationListener.destinationChanged()
+            MapsNotificationListener.routeChanged()
             return
         }
         p.edit().remove("confirmed_name").remove("confirmed_address")
@@ -107,6 +107,6 @@ object MapsDestinationCapture {
             .remove("candidate_name").remove("candidate_address")
             .remove("candidate_at").remove("armed_at").apply()
         DriveLog.record(context, "DEST_CLEARED", reason)
-        MapsNotificationListener.destinationChanged()
+        MapsNotificationListener.routeChanged()
     }
 }
