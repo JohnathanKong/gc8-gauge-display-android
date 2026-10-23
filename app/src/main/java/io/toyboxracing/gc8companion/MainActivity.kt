@@ -104,6 +104,27 @@ class MainActivity : Activity() {
                 Toast.makeText(this@MainActivity, "Copied. Review for private addresses before sharing.", Toast.LENGTH_LONG).show()
             }
         })
+        root.addView(Button(this).apply {
+            text = "Export drive diagnostics"
+            setOnClickListener {
+                val file = DriveLog.export(this@MainActivity)
+                val uri = androidx.core.content.FileProvider.getUriForFile(
+                    this@MainActivity, packageName + ".files", file)
+                val share = Intent(Intent.ACTION_SEND).apply {
+                    type = "text/plain"
+                    putExtra(Intent.EXTRA_STREAM, uri)
+                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                }
+                startActivity(Intent.createChooser(share, "Share GC8 drive log (contains locations)"))
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Clear drive diagnostics"
+            setOnClickListener {
+                DriveLog.clear(this@MainActivity)
+                Toast.makeText(this@MainActivity, "Drive log cleared.", Toast.LENGTH_SHORT).show()
+            }
+        })
         output = TextView(this).apply {
             textSize = 16f
             setTextIsSelectable(true)
