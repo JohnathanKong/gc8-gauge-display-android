@@ -8,6 +8,16 @@ import android.util.Log
 /** Experimental Google Maps notification bridge. Never invent guidance. */
 class MapsNotificationListener : NotificationListenerService() {
     private var lastSent: String? = null
+    private var lastGuidance: Triple<String, String, String>? = null
+    private fun resendDestination() {
+        val guidance = lastGuidance ?: return
+        val destination = MapsDestinationCapture.confirmed(this)
+        val fingerprint = "${guidance.first}|${guidance.second}|${guidance.third}|$destination"
+        if (fingerprint == lastSent) return
+        lastSent = fingerprint
+        DriveLog.record(this, "DEST_FORWARD", fingerprint)
+        GaugeBleClient.forwardMapsNavigation(guidance.first, guidance.second, guidance.third, destination)
+    }
     private var lastNotificationAt = 0L
     private val watchdog = android.os.Handler(android.os.Looper.getMainLooper())
     private val watchdogTask = object : Runnable {
@@ -24,10 +34,12 @@ class MapsNotificationListener : NotificationListenerService() {
     }
     override fun onCreate() {
         super.onCreate()
+        instance = this
         watchdog.postDelayed(watchdogTask, 30000L)
         DriveLog.record(this, "LISTENER", "created")
     }
     override fun onDestroy() {
+        if (instance === this) instance = null
         watchdog.removeCallbacks(watchdogTask)
         DriveLog.record(this, "LISTENER", "destroyed")
         super.onDestroy()
@@ -48,6 +60,7 @@ class MapsNotificationListener : NotificationListenerService() {
         DriveLog.record(this, "MAPS_REMOVED", "stillActive=$stillActive")
         if (!stillActive) {
             lastSent = null
+            lastGuidance = null
             MapsDestinationCapture.clearRoute(this)
             MapsCaptureStore.setBridgeStatus(this, "Maps notification removed; route data may be stale")
             GaugeBleClient.clearNavigation()
@@ -130,6 +143,7 @@ class MapsNotificationListener : NotificationListenerService() {
         MapsCaptureStore.setBridgeStatus(this, reason)
         DriveLog.record(this, "PARSE", reason)
         if (maneuver != null && distance != null && !street.isNullOrBlank()) {
+            lastGuidance = Triple(maneuver, distance, street)
             val fingerprint = "$maneuver|$distance|$street|$destination"
             if (fingerprint != lastSent) {
                 lastSent = fingerprint
@@ -142,5 +156,10 @@ class MapsNotificationListener : NotificationListenerService() {
 
     companion object {
         private const val MAPS_PACKAGE = "com.google.android.apps.maps"
+        @Volatile private var instance: MapsNotificationListener? = null
+        fun destinationChanged() {
+            val listener = instance ?: return
+            listener.watchdog.post { listener.resendDestination() }
+        }
     }
 }
