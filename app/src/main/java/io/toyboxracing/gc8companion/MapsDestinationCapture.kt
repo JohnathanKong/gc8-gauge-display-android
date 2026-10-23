@@ -35,10 +35,9 @@ object MapsDestinationCapture {
             DriveLog.record(context, "DEST_ENRICHED", "$name | $address")
             return
         }
-        // A late update from the same place sheet must not overwrite a
-        // destination that was just confirmed during the Start transition.
-        if (name == p.getString("confirmed_name", "") &&
-            address == p.getString("confirmed_address", "")) return
+        // A new visit to the same place sheet must rearm a future Start.
+        // Otherwise ending and restarting navigation for the same selected
+        // place produces DEST_IGNORED because the prior candidate was consumed.
         p.edit().putString("candidate_name", name)
             .putString("candidate_address", address)
             .putLong("candidate_at", SystemClock.elapsedRealtime())
@@ -85,6 +84,9 @@ object MapsDestinationCapture {
             .remove("candidate_name").remove("candidate_address")
             .remove("candidate_at").remove("armed_at").apply()
         DriveLog.record(context, "DEST_CONFIRMED", "$name | $address")
+        // Deliver the verified destination on the same UI transition as Start,
+        // without requiring Maps to emit a positive maneuver distance.
+        GaugeBleClient.forwardMapsDestination(name)
         MapsNotificationListener.destinationChanged()
     }
 
