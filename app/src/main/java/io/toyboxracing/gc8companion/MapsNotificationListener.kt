@@ -9,6 +9,17 @@ import android.util.Log
 class MapsNotificationListener : NotificationListenerService() {
     private var lastSent: String? = null
     private var lastGuidance: Triple<String, String, String>? = null
+
+    // A new selected destination invalidates the old maneuver. The next
+    // instruction must come from a fresh Maps navigation notification.
+    // Do not pair a new destination with the previous route's guidance.
+    private fun resetRouteGuidance() {
+        lastGuidance = null
+        lastSent = null
+        DriveLog.record(this, "ROUTE_RESET", "Discarded cached maneuver for new/closed route")
+        GaugeBleClient.clearNavigation()
+    }
+
     private fun resendDestination() {
         val guidance = lastGuidance ?: return
         val destination = MapsDestinationCapture.confirmed(this)
@@ -160,6 +171,15 @@ class MapsNotificationListener : NotificationListenerService() {
         fun destinationChanged() {
             val listener = instance ?: return
             listener.watchdog.post { listener.resendDestination() }
+        }
+
+        fun routeChanged() {
+            val listener = instance
+            if (listener != null) {
+                listener.watchdog.post { listener.resetRouteGuidance() }
+            } else {
+                GaugeBleClient.clearNavigation()
+            }
         }
     }
 }
