@@ -220,3 +220,11 @@ Fix:
 - **No changes to notification maneuver/distance/street parsing, BLE protocol, firmware, or display rendering.**
 
 Current revision is **not Android-compiled or device-tested**. First verify that `DEST_CANDIDATE`, `DEST_START`, `DEST_CONFIRMED`, and `DEST_FORWARD` appear in that order for Mackenzie Health. Then stop the route, return to Maps home, select a different place, and confirm the old destination does not reappear. The sample log screenshot's navigation indicators satisfy the new fallback predicate in a local text check; this is not a replacement for a Fold8 test.
+
+### 2026-10-23 — fix repeated uninstall/reinstall for Docker-built debug APKs
+
+**Cause:** The app was built with `docker compose run --rm android ...`. Android Gradle's default debug signing key lives in `/home/android/.android/debug.keystore`, but only `/home/android/.gradle` was mounted persistently. Every ephemeral build container could generate a new debug signer, so Android refused to update the existing app over the old APK.
+
+**Fix:** `compose.yaml` now mounts a named volume `android-debug-signing` at `/home/android/.android`. The `Dockerfile` creates this directory with the correct ownership before the volume is mounted. Build this Docker image once with `docker compose build android`, then continue using `docker compose run --rm android gradle --no-daemon assembleDebug`. Future builds using the same Docker Compose project and signing volume will use the same key and should install as updates.
+
+**Migration:** APKs created before this fix may have incompatible signers. The owner may need to uninstall the already installed APK **once** to install the newly signed build; this clears app data, and notification/Accessibility/BLE permissions may need to be reauthorized. After that, keep the signing volume; do not run `docker compose down -v`, remove `android-debug-signing`, or `docker volume prune` when expecting future updates to preserve signing identity. Do not check a private keystore into Git. Same `applicationId` (`io.toyboxracing.gc8companion`) is retained. A stable signing key is necessary but not a guarantee against unrelated installation failures.
