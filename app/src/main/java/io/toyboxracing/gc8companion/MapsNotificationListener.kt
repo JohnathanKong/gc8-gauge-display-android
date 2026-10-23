@@ -8,6 +8,30 @@ import android.util.Log
 /** Experimental Google Maps notification bridge. Never invent guidance. */
 class MapsNotificationListener : NotificationListenerService() {
     private var lastSent: String? = null
+    private var lastNotificationAt = 0L
+    private val watchdog = android.os.Handler(android.os.Looper.getMainLooper())
+    private val watchdogTask = object : Runnable {
+        override fun run() {
+            if (lastNotificationAt > 0L) {
+                val age = android.os.SystemClock.elapsedRealtime() - lastNotificationAt
+                if (age >= 30000L) {
+                    DriveLog.record(this@MapsNotificationListener, "WATCHDOG", "No Maps update for ${age / 1000}s")
+                    MapsCaptureStore.setBridgeStatus(this@MapsNotificationListener, "STALE: no Maps event for ${age / 1000}s")
+                }
+            }
+            watchdog.postDelayed(this, 30000L)
+        }
+    }
+    override fun onCreate() {
+        super.onCreate()
+        watchdog.postDelayed(watchdogTask, 30000L)
+        DriveLog.record(this, "LISTENER", "created")
+    }
+    override fun onDestroy() {
+        watchdog.removeCallbacks(watchdogTask)
+        DriveLog.record(this, "LISTENER", "destroyed")
+        super.onDestroy()
+    }
 
     override fun onListenerConnected() {
         super.onListenerConnected()
@@ -21,6 +45,7 @@ class MapsNotificationListener : NotificationListenerService() {
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
         if (sbn?.packageName != MAPS_PACKAGE) return
         val stillActive = activeNotifications?.any { it.packageName == MAPS_PACKAGE } ?: false
+        DriveLog.record(this, "MAPS_REMOVED", "stillActive=$stillActive")
         if (!stillActive) {
             lastSent = null
             MapsCaptureStore.setBridgeStatus(this, "Maps notification removed; route data may be stale")
@@ -29,6 +54,7 @@ class MapsNotificationListener : NotificationListenerService() {
     }
 
     private fun capture(sbn: StatusBarNotification) {
+        lastNotificationAt = android.os.SystemClock.elapsedRealtime()
         val extras = sbn.notification.extras
         fun field(key: String): String = extras.getCharSequence(key)?.toString().orEmpty()
         val title = field(Notification.EXTRA_TITLE)
@@ -54,6 +80,8 @@ class MapsNotificationListener : NotificationListenerService() {
             "\nLarge icon present: ${sbn.notification.getLargeIcon() != null}" +
             "\nCategory: ${sbn.notification.category.orEmpty()}"
         MapsCaptureStore.save(this, title, text, bigText, subText, diagnostics)
+        DriveLog.record(this, "MAPS_NOTIFICATION", "title=$title text=$text big=$bigText sub=$subText " +
+            samsungKeys.joinToString(" ") { key -> "$key=${field(key)}" })
 
         val instructions = listOf(
             title, field("android.ongoingActivityNoti.nowbarSecondaryInfo"),
@@ -98,10 +126,12 @@ class MapsNotificationListener : NotificationListenerService() {
             else -> "Parsed: $maneuver | $distance | $street"
         }
         MapsCaptureStore.setBridgeStatus(this, reason)
+        DriveLog.record(this, "PARSE", reason)
         if (maneuver != null && distance != null && !street.isNullOrBlank()) {
             val fingerprint = "$maneuver|$distance|$street|$destination"
             if (fingerprint != lastSent) {
                 lastSent = fingerprint
+                DriveLog.record(this, "FORWARD", fingerprint)
                 GaugeBleClient.forwardMapsNavigation(maneuver, distance, street, destination)
             }
         }
