@@ -8,7 +8,7 @@ import android.util.Log
 /** Experimental Google Maps notification bridge. Never invent guidance. */
 class MapsNotificationListener : NotificationListenerService() {
     private var lastSent: String? = null
-    private var navigationActive = false
+    @Volatile private var navigationActive = false
     private var lastNavigationKey: String? = null
 
     private fun isNavigation(sbn: StatusBarNotification): Boolean {
@@ -79,7 +79,7 @@ class MapsNotificationListener : NotificationListenerService() {
         // A Maps review prompt can remain after navigation ends. Count only
         // actual navigation notifications, not all com.google.android.apps.maps.
         val stillNavigating = activeNotifications?.any {
-            it.packageName == MAPS_PACKAGE && isNavigation(it)
+            it.packageName == MAPS_PACKAGE && it.key != sbn.key && isNavigation(it)
         } ?: false
         DriveLog.record(this, "MAPS_REMOVED",
             "wasNavigation=$wasNavigation stillNavigating=$stillNavigating")
