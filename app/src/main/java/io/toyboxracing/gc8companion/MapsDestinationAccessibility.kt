@@ -71,20 +71,55 @@ class MapsDestinationAccessibility : AccessibilityService() {
         }
         homeVisible = onHome
 
-        // A previously selected place becomes a *candidate* only when the
-        // explicit Directions label agrees with the resolved Address label.
+        // There are TWO Google Maps selected-place layouts on this Fold:
+        // 1. Expanded details: "Directions to NAME, STREET" + "Address: ..."
+        // 2. Compact place sheet: "View Street view imagery for NAME",
+        //    a matching NAME text/description, and "Driving mode: ..."
+        // In the second layout Maps does NOT expose a full street address,
+        // even though Start navigation is available. Never use search text.
         val descriptions = lines.map { it.substringAfter(" desc=").trim() }
         val address = descriptions.firstOrNull { it.startsWith("Address: ", ignoreCase = true) }
             ?.substringAfter(": ")?.trim()
         val direction = descriptions.firstOrNull { it.startsWith("Directions to ", ignoreCase = true) }
             ?.substringAfter("Directions to ")?.trim()
+
+        var selectedName: String? = null
+        var selectedAddress = ""
         if (!onHome && !address.isNullOrBlank() && !direction.isNullOrBlank()) {
             val street = address.substringBefore(",").trim()
             val suffix = ", $street"
             if (direction.contains(suffix)) {
                 val name = direction.substringBefore(suffix).trim()
-                if (name.isNotBlank()) MapsDestinationCapture.candidate(this, name, address)
+                if (name.isNotBlank()) {
+                    selectedName = name
+                    selectedAddress = address
+                }
             }
+        }
+
+        if (!onHome && selectedName == null) {
+            val prefix = "View Street view imagery for "
+            val streetViewName = descriptions.firstOrNull {
+                it.startsWith(prefix, ignoreCase = true)
+            }?.substring(prefix.length)?.trim().orEmpty()
+            val drivingEstimatePresent = descriptions.any {
+                it.startsWith("Driving mode:", ignoreCase = true)
+            }
+            // Street View thumbnail belongs to the *selected* place sheet.
+            // Demand corroboration by an exact, separately exposed place title
+            // and a driving estimate, not a query/list-result/nearby suggestion.
+            val titleMatches = streetViewName.isNotBlank() && lines.any { line ->
+                val text = line.substringAfter(" text=", "").substringBefore(" desc=").trim()
+                val description = line.substringAfter(" desc=", "").trim()
+                text == streetViewName && description == streetViewName
+            }
+            if (titleMatches && drivingEstimatePresent) {
+                selectedName = streetViewName
+            }
+        }
+
+        if (!selectedName.isNullOrBlank()) {
+            MapsDestinationCapture.candidate(this, selectedName, selectedAddress)
         }
 
         // Samsung's Google Maps navigation UI does not always expose the
