@@ -15,6 +15,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         val SERVICE_UUID: UUID = UUID.fromString("a8e31c40-6b8f-4b67-a4f0-4a0b75000001")
         val WRITE_UUID: UUID = UUID.fromString("a8e31c40-6b8f-4b67-a4f0-4a0b75000002")
         @Volatile private var activeClient: GaugeBleClient? = null
+        fun clearNavigation() { activeClient?.sendClearNavigation() }
         fun forwardMapsNavigation(maneuver: String, distance: String, street: String, destination: String) {
             activeClient?.sendLiveNavigation(maneuver, distance, street, destination)
         }
@@ -26,9 +27,15 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     private var gatt: BluetoothGatt? = null
     @Volatile private var writable: BluetoothGattCharacteristic? = null
     @Volatile private var writePending = false
+    private var latestQueued: String? = null
+    private var lastSent: String? = null
+    private var lastWriteMessage: String? = null
+    private var autoReconnect = false
+    private var retryCount = 0
     private fun status(value: String) = activity.runOnUiThread { report(value) }
 
     fun connect() {
+        autoReconnect = true
         if (Build.VERSION.SDK_INT >= 31 &&
             (activity.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED ||
              activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)) {
@@ -71,6 +78,10 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         }
         override fun onScanFailed(errorCode: Int) { scanning = false; status("Scan failed: $errorCode") }
     }
+    fun sendClearNavigation() {
+        handler.post { sendPayload("GC8|1|CLEAR", false) }
+    }
+
     fun sendLiveNavigation(maneuver: String, distance: String, street: String, destination: String) {
         handler.post {
             fun clean(s: String, max: Int) = s.replace("|", " ").filter { it.code in 32..126 }.trim().take(max)
@@ -95,12 +106,14 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             return
         }
         if (writePending) {
-            status("Previous test write is still pending.")
+            latestQueued = message
             return
         }
+        if (!isTest && message == lastSent) return
         val payload = message.toByteArray(Charsets.US_ASCII)
         if (payload.size > 100) return
         writePending = true
+        lastWriteMessage = message
         try {
             if (Build.VERSION.SDK_INT >= 33) {
                 val result = connection.writeCharacteristic(
@@ -131,7 +144,11 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onCharacteristicWrite(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, statusCode: Int) {
             writePending = false
+            if (statusCode == BluetoothGatt.GATT_SUCCESS) lastSent = lastWriteMessage
             if (characteristic.uuid == WRITE_UUID) {
+                val next = latestQueued
+                latestQueued = null
+                if (next != null) handler.post { sendPayload(next, false) }
                 status(if (statusCode == BluetoothGatt.GATT_SUCCESS)
                     "Test navigation + DEMO AFR accepted by BLE GATT; check Waveshare screen."
                     else "Test navigation write failed (status $statusCode).")
@@ -139,6 +156,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         }
         override fun onConnectionStateChange(g: BluetoothGatt, statusCode: Int, newState: Int) {
             if (statusCode == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
+                retryCount = 0
                 status("Connected; discovering services…")
                 try {
                     if (!g.requestMtu(185)) g.discoverServices()
@@ -146,8 +164,13 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             } else {
                 writable = null
                 writePending = false
+                lastSent = null
                 status("Disconnected (status $statusCode)")
                 try { g.close() } catch (_: SecurityException) {}
+                if (autoReconnect && retryCount < 6) {
+                    retryCount++
+                    handler.postDelayed({ if (autoReconnect) connect() }, 5000L)
+                }
             }
         }
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, statusCode: Int) {
@@ -165,6 +188,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         try { manager.adapter?.bluetoothLeScanner?.stopScan(scanCallback) } catch (_: SecurityException) {}
     }
     fun close() {
+        autoReconnect = false
         if (activeClient === this) activeClient = null
         stopScan()
         try { gatt?.disconnect(); gatt?.close() } catch (_: SecurityException) {}
