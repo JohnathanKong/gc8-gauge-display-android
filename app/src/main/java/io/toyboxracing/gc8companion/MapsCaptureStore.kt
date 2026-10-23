@@ -32,7 +32,7 @@ object MapsCaptureStore {
     fun read(context: Context): String =
         "Bridge: " + (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getString("bridge_status", "Waiting for navigation") ?: "Waiting") +
-        "\\n\\n" + readNotification(context)
+        "\n\n" + readNotification(context)
 
     private fun readNotification(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)
