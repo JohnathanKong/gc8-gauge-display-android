@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="maps_accessibility_description">Read visible Google Maps destination details for local diagnostics. Does not control Maps or collect content from other apps.</string>
+</resources>
