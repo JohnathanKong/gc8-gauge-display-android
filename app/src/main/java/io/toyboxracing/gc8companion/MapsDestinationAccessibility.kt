@@ -5,27 +5,37 @@ import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 
 /**
- * Read-only experiment: observe selected Google Maps place/route screens.
- * Never click, navigate, infer a destination from a search query, or alter
- * the proven notification -> BLE maneuver pipeline.
+ * Observes Google Maps only. Never clicks or controls Maps, never treats a
+ * search query as a selected destination, and never changes maneuver parsing.
  */
 class MapsDestinationAccessibility : AccessibilityService() {
     private var previousFingerprint = ""
     private var lastRecordedAt = 0L
+    private var homeVisible = false
+    private var navigationVisible = false
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.packageName?.toString() != "com.google.android.apps.maps") return
-        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+
+        val isStartClick = if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
             val clicked = (event.text.joinToString(" ") + " " +
                 (event.contentDescription?.toString() ?: "")).trim()
-            if (clicked.equals("Start", ignoreCase = true) ||
-                clicked.startsWith("Start ", ignoreCase = true)) {
-                MapsDestinationCapture.armStart(this)
-            }
-            return
+            clicked.equals("Start", ignoreCase = true) ||
+                clicked.startsWith("Start ", ignoreCase = true)
+        } else {
+            false
         }
-        if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
+
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED && !isStartClick) return
+        if (event.eventType != AccessibilityEvent.TYPE_VIEW_CLICKED &&
+            event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
+
+        // A click may be delivered after Maps has already transitioned to
+        // navigation (as seen in the 2026-10-23 logs). Inspect the root for
+        // this same click, not only subsequent content-change events.
+        if (isStartClick) MapsDestinationCapture.armStart(this)
+
         val root = rootInActiveWindow ?: return
         val lines = mutableListOf<String>()
         try {
@@ -48,12 +58,27 @@ class MapsDestinationAccessibility : AccessibilityService() {
             root.recycle()
         }
         if (lines.isEmpty()) return
+
+        // The Maps home screen, unlike a place details sheet, includes both
+        // the search omnibox and Explore tab. That is our reliable reset cue.
+        val onHome = lines.any {
+            it.contains("id=com.google.android.apps.maps:id/search_omnibox_text_box") &&
+                it.contains("Search here")
+        } && lines.any { it.contains("id=com.google.android.apps.maps:id/explore_tab_strip_button") }
+        if (onHome && !homeVisible) {
+            MapsDestinationCapture.clearRoute(this, "Google Maps home screen")
+            DriveLog.record(this, "DEST_HOME", "Maps home screen entered")
+        }
+        homeVisible = onHome
+
+        // A previously selected place becomes a *candidate* only when the
+        // explicit Directions label agrees with the resolved Address label.
         val descriptions = lines.map { it.substringAfter(" desc=").trim() }
         val address = descriptions.firstOrNull { it.startsWith("Address: ", ignoreCase = true) }
             ?.substringAfter(": ")?.trim()
         val direction = descriptions.firstOrNull { it.startsWith("Directions to ", ignoreCase = true) }
             ?.substringAfter("Directions to ")?.trim()
-        if (!address.isNullOrBlank() && !direction.isNullOrBlank()) {
+        if (!onHome && !address.isNullOrBlank() && !direction.isNullOrBlank()) {
             val street = address.substringBefore(",").trim()
             val suffix = ", $street"
             if (direction.contains(suffix)) {
@@ -61,15 +86,32 @@ class MapsDestinationAccessibility : AccessibilityService() {
                 if (name.isNotBlank()) MapsDestinationCapture.candidate(this, name, address)
             }
         }
-        if (lines.any { it.contains("navigation_stepcuefirstline_textbox") }) {
-            MapsDestinationCapture.navigationVisible(this)
+
+        // Samsung's Google Maps navigation UI does not always expose the
+        // stepcue textbox. Its arrival-time + Close-navigation controls were
+        // both present in the actual failure log. Require paired markers so
+        // a route preview cannot accidentally confirm a destination.
+        val hasStepCue = lines.any { it.contains("navigation_stepcuefirstline_textbox") }
+        val hasNavigationTime = lines.any { it.contains("navigation_time_remaining_label") }
+        val hasCloseNavigation = lines.any { it.contains("desc=Close navigation") }
+        val hasNavigationToolbar = lines.any { it.contains("nav_search_fab_button") } &&
+            lines.any { it.contains("nav_overview_fab") }
+        val onNavigation = hasStepCue ||
+            (hasNavigationTime && hasCloseNavigation) || hasNavigationToolbar
+
+        if (onNavigation && !navigationVisible) {
+            DriveLog.record(this, "DEST_NAV_UI",
+                "Navigation chrome detected; stepCue=$hasStepCue time=$hasNavigationTime " +
+                    "close=$hasCloseNavigation toolbar=$hasNavigationToolbar")
         }
+        navigationVisible = onNavigation
+        if (onNavigation) MapsDestinationCapture.navigationVisible(this)
+
         val fingerprint = lines.joinToString("\n")
         val now = android.os.SystemClock.elapsedRealtime()
         if (fingerprint == previousFingerprint || now - lastRecordedAt < 1000L) return
         previousFingerprint = fingerprint
         lastRecordedAt = now
-        // Explicitly diagnostic-only: UI text is not verified destination data.
         DriveLog.record(this, "MAPS_ACCESSIBILITY",
             "event=${event.eventType} nodes=${lines.size} " + lines.take(8).joinToString(" | "))
         MapsDestinationCapture.save(this, fingerprint)
