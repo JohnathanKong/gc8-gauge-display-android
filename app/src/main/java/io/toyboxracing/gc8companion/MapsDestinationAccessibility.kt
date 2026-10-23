@@ -15,6 +15,15 @@ class MapsDestinationAccessibility : AccessibilityService() {
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         if (event?.packageName?.toString() != "com.google.android.apps.maps") return
+        if (event.eventType == AccessibilityEvent.TYPE_VIEW_CLICKED) {
+            val clicked = (event.text.joinToString(" ") + " " +
+                event.contentDescription.orEmpty()).trim()
+            if (clicked.equals("Start", ignoreCase = true) ||
+                clicked.startsWith("Start ", ignoreCase = true)) {
+                MapsDestinationCapture.armStart(this)
+            }
+            return
+        }
         if (event.eventType != AccessibilityEvent.TYPE_WINDOW_STATE_CHANGED &&
             event.eventType != AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED) return
         val root = rootInActiveWindow ?: return
@@ -39,6 +48,22 @@ class MapsDestinationAccessibility : AccessibilityService() {
             root.recycle()
         }
         if (lines.isEmpty()) return
+        val descriptions = lines.map { it.substringAfter(" desc=").trim() }
+        val address = descriptions.firstOrNull { it.startsWith("Address: ", ignoreCase = true) }
+            ?.substringAfter(": ")?.trim()
+        val direction = descriptions.firstOrNull { it.startsWith("Directions to ", ignoreCase = true) }
+            ?.substringAfter("Directions to ")?.trim()
+        if (!address.isNullOrBlank() && !direction.isNullOrBlank()) {
+            val street = address.substringBefore(",").trim()
+            val suffix = ", $street"
+            if (direction.contains(suffix)) {
+                val name = direction.substringBefore(suffix).trim()
+                if (name.isNotBlank()) MapsDestinationCapture.candidate(this, name, address)
+            }
+        }
+        if (lines.any { it.contains("navigation_stepcuefirstline_textbox") }) {
+            MapsDestinationCapture.navigationVisible(this)
+        }
         val fingerprint = lines.joinToString("\n")
         val now = android.os.SystemClock.elapsedRealtime()
         if (fingerprint == previousFingerprint || now - lastRecordedAt < 1000L) return
