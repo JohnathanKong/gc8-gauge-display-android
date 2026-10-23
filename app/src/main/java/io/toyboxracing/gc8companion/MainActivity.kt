@@ -27,6 +27,12 @@ class MainActivity : Activity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // The old Accessibility reader stored selected-place screen text and
+        // postal addresses. The notification-only app no longer needs them.
+        getSharedPreferences("gc8_accessibility_diagnostics", MODE_PRIVATE)
+            .edit().clear().apply()
+        getSharedPreferences("gc8_navigation", MODE_PRIVATE)
+            .edit().remove("destination").apply()
         val root = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(32, 48, 32, 32)
