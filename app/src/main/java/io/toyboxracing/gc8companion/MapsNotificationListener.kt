@@ -48,6 +48,7 @@ class MapsNotificationListener : NotificationListenerService() {
         DriveLog.record(this, "MAPS_REMOVED", "stillActive=$stillActive")
         if (!stillActive) {
             lastSent = null
+            MapsDestinationCapture.clearRoute(this)
             MapsCaptureStore.setBridgeStatus(this, "Maps notification removed; route data may be stale")
             GaugeBleClient.clearNavigation()
         }
@@ -119,7 +120,7 @@ class MapsNotificationListener : NotificationListenerService() {
             }?.trimEnd('.', ',', ';')
         // A search query is NOT the destination selected in Google Maps.
         // Until the accessibility capture is validated, send no destination.
-        val destination = ""
+        val destination = MapsDestinationCapture.confirmed(this)
         val reason = when {
             maneuver == null -> "Waiting: unsupported or missing maneuver"
             distance == null -> "Waiting: no positive distance in notification"
