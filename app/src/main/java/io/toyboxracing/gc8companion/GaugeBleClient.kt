@@ -32,7 +32,10 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     private var lastWriteMessage: String? = null
     private var autoReconnect = false
     private var retryCount = 0
-    private fun status(value: String) = activity.runOnUiThread { report(value) }
+    private fun status(value: String) {
+        DriveLog.record(activity, "BLE_STATUS", value)
+        activity.runOnUiThread { report(value) }
+    }
 
     fun connect() {
         autoReconnect = true
@@ -106,12 +109,20 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             return
         }
         if (writePending) {
+            DriveLog.record(activity, "BLE_QUEUE", message)
             latestQueued = message
             return
         }
-        if (!isTest && message == lastSent) return
+        if (!isTest && message == lastSent) {
+            DriveLog.record(activity, "BLE_DUPLICATE", message)
+            return
+        }
         val payload = message.toByteArray(Charsets.US_ASCII)
-        if (payload.size > 100) return
+        if (payload.size > 100) {
+            DriveLog.record(activity, "BLE_REJECT", "payload too long: ${payload.size}")
+            return
+        }
+        DriveLog.record(activity, "BLE_SEND", message)
         writePending = true
         lastWriteMessage = message
         try {
@@ -144,6 +155,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onCharacteristicWrite(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, statusCode: Int) {
             writePending = false
+            DriveLog.record(activity, "BLE_WRITE_RESULT", "status=$statusCode message=$lastWriteMessage")
             if (statusCode == BluetoothGatt.GATT_SUCCESS) lastSent = lastWriteMessage
             if (characteristic.uuid == WRITE_UUID) {
                 val next = latestQueued
