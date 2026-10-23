@@ -24,7 +24,17 @@ object MapsCaptureStore {
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putString(KEY, value).apply()
     }
 
+    fun setBridgeStatus(context: Context, status: String) {
+        context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .edit().putString("bridge_status", status).apply()
+    }
+
     fun read(context: Context): String =
+        "Bridge: " + (context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            .getString("bridge_status", "Waiting for navigation") ?: "Waiting") +
+        "\\n\\n" + readNotification(context)
+
+    private fun readNotification(context: Context): String =
         context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).getString(KEY, null)
             ?: "No Google Maps notification captured yet.\n\nCheck notification access, start turn-by-turn navigation in Google Maps, then tap Refresh."
 }
