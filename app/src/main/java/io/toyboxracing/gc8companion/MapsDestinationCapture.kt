@@ -84,17 +84,20 @@ object MapsDestinationCapture {
             .remove("candidate_name").remove("candidate_address")
             .remove("candidate_at").remove("armed_at").apply()
         DriveLog.record(context, "DEST_CONFIRMED", "$name | $address")
-        // Deliver the verified destination on the same UI transition as Start,
-        // without requiring Maps to emit a positive maneuver distance.
-        GaugeBleClient.forwardMapsDestination(name)
+        // Deliver the selected place's full address whenever Google Maps
+        // exposes it; use its verified name only if no address was captured.
+        // This happens at Start without requiring a positive maneuver distance.
+        GaugeBleClient.forwardMapsDestination(address.ifBlank { name })
         MapsNotificationListener.destinationChanged()
     }
 
     fun confirmed(context: Context): String {
         val p = prefs(context)
-        return p.getString("confirmed_name", "").orEmpty().ifBlank {
-            p.getString("confirmed_address", "").orEmpty()
-        }
+        val address = p.getString("confirmed_address", "").orEmpty()
+        val name = p.getString("confirmed_name", "").orEmpty()
+        // All forwarding paths (immediate, later turns, BLE reconnects)
+        // prefer the postal address to the place name.
+        return address.ifBlank { name }
     }
 
     fun clearRoute(context: Context, reason: String = "Navigation notification ended") {
