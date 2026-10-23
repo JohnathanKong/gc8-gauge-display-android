@@ -7,6 +7,7 @@ services:
     volumes:
       - ./:/workspace
       - gradle-cache:/home/android/.gradle
+      - android-debug-signing:/home/android/.android
     stdin_open: true
     tty: true
     environment:
@@ -15,3 +16,4 @@ services:
 
 volumes:
   gradle-cache:
+  android-debug-signing:
