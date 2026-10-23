@@ -18,6 +18,7 @@ import android.widget.Toast
 import android.text.method.ScrollingMovementMethod
 
 class MainActivity : Activity() {
+    private val exportRequestCode = 7402
     private lateinit var output: TextView
     private lateinit var ble: GaugeBleClient
     private val updates = object : android.content.BroadcastReceiver() {
@@ -105,17 +106,20 @@ class MainActivity : Activity() {
             }
         })
         root.addView(Button(this).apply {
-            text = "Export drive diagnostics"
+            text = "Save drive diagnostics to file"
             setOnClickListener {
-                val file = DriveLog.export(this@MainActivity)
-                val uri = androidx.core.content.FileProvider.getUriForFile(
-                    this@MainActivity, packageName + ".files", file)
-                val share = Intent(Intent.ACTION_SEND).apply {
-                    type = "text/plain"
-                    putExtra(Intent.EXTRA_STREAM, uri)
-                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                try {
+                    val intent = Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
+                        addCategory(Intent.CATEGORY_OPENABLE)
+                        type = "text/plain"
+                        putExtra(Intent.EXTRA_TITLE, "gc8_drive_log.txt")
+                    }
+                    startActivityForResult(intent, exportRequestCode)
+                } catch (e: Exception) {
+                    Toast.makeText(this@MainActivity,
+                        "File picker unavailable: ${e.javaClass.simpleName}",
+                        Toast.LENGTH_LONG).show()
                 }
-                startActivity(Intent.createChooser(share, "Share GC8 drive log (contains locations)"))
             }
         })
         root.addView(Button(this).apply {
@@ -132,6 +136,22 @@ class MainActivity : Activity() {
         root.addView(ScrollView(this).apply { addView(output) })
         setContentView(root)
         refresh()
+    }
+
+    override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+        super.onActivityResult(requestCode, resultCode, data)
+        if (requestCode != exportRequestCode || resultCode != RESULT_OK) return
+        val uri = data?.data ?: return
+        try {
+            val file = DriveLog.export(this)
+            contentResolver.openOutputStream(uri, "w")?.use { output ->
+                file.inputStream().use { input -> input.copyTo(output) }
+            } ?: throw java.io.IOException("Cannot open destination")
+            Toast.makeText(this, "Drive log saved. Attach gc8_drive_log.txt in ChatGPT.",
+                Toast.LENGTH_LONG).show()
+        } catch (e: Exception) {
+            Toast.makeText(this, "Export failed: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onDestroy() {
