@@ -20,6 +20,16 @@
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS"
                 android:resource="@xml/drive_log_paths" />
         </provider>
+        <service android:name=".MapsDestinationAccessibility"
+            android:label="GC8 Maps destination reader"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data android:name="android.accessibilityservice"
+                android:resource="@xml/maps_accessibility_config" />
+        </service>
         <service android:name=".MapsNotificationListener"
             android:label="GC8 Google Maps notification access"
             android:permission="android.permission.BIND_NOTIFICATION_LISTENER_SERVICE"
