@@ -26,11 +26,12 @@ object MapsDestinationCapture {
         val now = SystemClock.elapsedRealtime()
         val oldName = p.getString("candidate_name", "")
         val oldAddress = p.getString("candidate_address", "")
-        if (name == oldName && address == oldAddress) return
+        if (name == oldName && address == oldAddress && now - p.getLong("candidate_at", 0L) < 5000L) return
         p.edit().putString("candidate_name", name)
             .putString("candidate_address", address)
             .putLong("candidate_at", now)
-            .remove("armed_at").apply()
+            .remove("armed_at").remove("confirmed_name").remove("confirmed_address").apply()
+        MapsNotificationListener.destinationChanged()
         DriveLog.record(context, "DEST_CANDIDATE", "$name | $address")
     }
 
@@ -57,6 +58,7 @@ object MapsDestinationCapture {
         p.edit().putString("confirmed_name", name)
             .putString("confirmed_address", address).apply()
         DriveLog.record(context, "DEST_CONFIRMED", "$name | $address")
+        MapsNotificationListener.destinationChanged()
     }
 
     fun confirmed(context: Context): String =
