@@ -174,9 +174,15 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 val next = latestQueued
                 latestQueued = null
                 if (next != null) handler.post { sendPayload(next, false) }
+                val kind = when {
+                    lastWriteMessage == "GC8|1|CLEAR" -> "Navigation cleared"
+                    lastWriteMessage?.startsWith("GC8|1|DEST|") == true -> "Destination"
+                    lastWriteMessage?.contains("|DEMO:") == true -> "Demo navigation"
+                    else -> "Live navigation"
+                }
                 status(if (statusCode == BluetoothGatt.GATT_SUCCESS)
-                    "Test navigation + DEMO AFR accepted by BLE GATT; check Waveshare screen."
-                    else "Test navigation write failed (status $statusCode).")
+                    "$kind accepted by GC8 BLE."
+                    else "$kind write failed (status $statusCode).")
             }
         }
         override fun onConnectionStateChange(g: BluetoothGatt, statusCode: Int, newState: Int) {
