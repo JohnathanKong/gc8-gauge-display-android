@@ -5,8 +5,10 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.util.Log
 
-/** Experimental notification data source; Google Maps is not a stable navigation API. */
+/** Experimental Google Maps notification bridge. Never invent guidance. */
 class MapsNotificationListener : NotificationListenerService() {
+    private var lastSent: String? = null
+
     override fun onListenerConnected() {
         super.onListenerConnected()
         activeNotifications?.filter { it.packageName == MAPS_PACKAGE }?.forEach { capture(it) }
@@ -16,17 +18,23 @@ class MapsNotificationListener : NotificationListenerService() {
         if (sbn?.packageName == MAPS_PACKAGE) capture(sbn)
     }
 
+    override fun onNotificationRemoved(sbn: StatusBarNotification?) {
+        if (sbn?.packageName != MAPS_PACKAGE) return
+        val stillActive = activeNotifications?.any { it.packageName == MAPS_PACKAGE } ?: false
+        if (!stillActive) {
+            lastSent = null
+            MapsCaptureStore.setBridgeStatus(this, "Maps notification removed; route data may be stale")
+            GaugeBleClient.clearNavigation()
+        }
+    }
+
     private fun capture(sbn: StatusBarNotification) {
         val extras = sbn.notification.extras
-        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty()
-        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty()
-        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString().orEmpty()
-        val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString().orEmpty()
-        val diagnosticFields = extras.keySet().sorted().joinToString("\n") { key ->
-            val value = try { extras.get(key) } catch (_: Exception) { null }
-            "$key (${value?.javaClass?.simpleName ?: "null"})"
-        }
-        val notification = sbn.notification
+        fun field(key: String): String = extras.getCharSequence(key)?.toString().orEmpty()
+        val title = field(Notification.EXTRA_TITLE)
+        val text = field(Notification.EXTRA_TEXT)
+        val bigText = field(Notification.EXTRA_BIG_TEXT)
+        val subText = field(Notification.EXTRA_SUB_TEXT)
         val samsungKeys = listOf(
             "android.ongoingActivityNoti.chipExpandedText",
             "android.ongoingActivityNoti.nowbarPrimaryInfo",
@@ -35,52 +43,69 @@ class MapsNotificationListener : NotificationListenerService() {
             "android.ongoingActivityNoti.secondaryInfo",
             "android.shortCriticalText"
         )
-        val samsungValues = samsungKeys.joinToString("\n") { key ->
-            val value = extras.getString(key)
-            "$key: ${value?.take(300) ?: "(absent)"}"
-        }
-        val diagnostics = "Samsung navigation strings:\n$samsungValues\n\nExtras keys/types:\n$diagnosticFields\n" +
-            "Small icon present: ${notification.smallIcon != null}\n" +
-            "Large icon present: ${notification.getLargeIcon() != null}\n" +
-            "Category: ${notification.category.orEmpty()}"
+        val diagnostics = "Samsung navigation strings:\n" +
+            samsungKeys.joinToString("\n") { key -> "$key: ${field(key).take(300).ifBlank { "(absent)" }}" } +
+            "\n\nExtras keys/types:\n" +
+            extras.keySet().sorted().joinToString("\n") { key ->
+                val value = try { extras.get(key) } catch (_: Exception) { null }
+                "$key (${value?.javaClass?.simpleName ?: "null"})"
+            } +
+            "\nSmall icon present: ${sbn.notification.smallIcon != null}" +
+            "\nLarge icon present: ${sbn.notification.getLargeIcon() != null}" +
+            "\nCategory: ${sbn.notification.category.orEmpty()}"
         MapsCaptureStore.save(this, title, text, bigText, subText, diagnostics)
 
-        val instruction = listOf(title, text, bigText).firstOrNull {
-            val s = it.lowercase()
-            s.contains("turn ") || s.contains("head ") || s.contains("continue ")
+        val instructions = listOf(
+            title, field("android.ongoingActivityNoti.nowbarSecondaryInfo"),
+            field("android.ongoingActivityNoti.secondaryInfo"), bigText, text
+        ).filter { it.isNotBlank() }
+        val instruction = instructions.firstOrNull { candidate ->
+            val s = candidate.lowercase()
+            listOf("turn", "head", "continue", "keep", "bear").any { s.contains(it) }
         }.orEmpty()
         val lower = instruction.lowercase()
         val maneuver = when {
             lower.contains("left") -> "LEFT"
             lower.contains("right") -> "RIGHT"
-            lower.contains("head ") || lower.contains("continue ") -> "STRAIGHT"
+            lower.contains("head") || lower.contains("continue") -> "STRAIGHT"
             else -> null
         }
-        val distanceCandidates = listOfNotNull(
-            extras.getString("android.ongoingActivityNoti.primaryInfo"),
-            extras.getString("android.ongoingActivityNoti.nowbarPrimaryInfo"),
-            extras.getString("android.ongoingActivityNoti.chipExpandedText"),
-            text
-        )
-        val distance = distanceCandidates.firstNotNullOfOrNull { candidate ->
-            candidate.split(" ").windowed(2).firstNotNullOfOrNull { pair ->
-                val number = pair[0].replace(",", ".")
-                val unit = pair[1].lowercase()
-                if (number.toDoubleOrNull() != null && unit in listOf("m", "km", "ft", "mi"))
-                    "${pair[0]} ${pair[1]}" else null
+        // Samsung Fold navigation fields have shown '0 m' in actual captures.
+        // Do not treat a zero reading as trustworthy next-turn distance.
+        val distanceRegex = Regex("""(?i)(?<![a-z0-9])([0-9]+(?:[.,][0-9]+)?)\s*(km|mi|ft|m)\b""")
+        val distance = listOf(
+            field("android.ongoingActivityNoti.primaryInfo"),
+            field("android.ongoingActivityNoti.nowbarPrimaryInfo"),
+            field("android.ongoingActivityNoti.chipExpandedText"),
+            text, bigText, title
+        ).firstNotNullOfOrNull { candidate ->
+            distanceRegex.find(candidate)?.let {
+                val number = it.groupValues[1].replace(",", ".").toDoubleOrNull()
+                if (number != null && number > 0) it.value else null
             }
         }
         val street = listOf(" onto ", " toward ", " on ", " to ")
             .firstNotNullOfOrNull { token ->
                 val index = lower.indexOf(token)
                 if (index >= 0) instruction.substring(index + token.length).trim() else null
-            }
+            }?.trimEnd('.', ',', ';')
         val destination = getSharedPreferences("gc8_navigation", MODE_PRIVATE)
             .getString("destination", "").orEmpty()
-        if (maneuver != null && distance != null && !street.isNullOrBlank()) {
-            GaugeBleClient.forwardMapsNavigation(maneuver, distance, street, destination)
+        val reason = when {
+            maneuver == null -> "Waiting: unsupported or missing maneuver"
+            distance == null -> "Waiting: no positive distance in notification"
+            street.isNullOrBlank() -> "Waiting: street not found in instruction"
+            else -> "Parsed: $maneuver | $distance | $street"
         }
-        Log.i("GC8Maps", "Google Maps notification captured (see app for details)")
+        MapsCaptureStore.setBridgeStatus(this, reason)
+        if (maneuver != null && distance != null && !street.isNullOrBlank()) {
+            val fingerprint = "$maneuver|$distance|$street|$destination"
+            if (fingerprint != lastSent) {
+                lastSent = fingerprint
+                GaugeBleClient.forwardMapsNavigation(maneuver, distance, street, destination)
+            }
+        }
+        Log.i("GC8Maps", "Maps notification received: $reason")
     }
 
     companion object {
