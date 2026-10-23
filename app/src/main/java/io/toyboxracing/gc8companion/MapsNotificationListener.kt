@@ -117,8 +117,9 @@ class MapsNotificationListener : NotificationListenerService() {
                 val index = lower.indexOf(token)
                 if (index >= 0) instruction.substring(index + token.length).trim() else null
             }?.trimEnd('.', ',', ';')
-        val destination = getSharedPreferences("gc8_navigation", MODE_PRIVATE)
-            .getString("destination", "").orEmpty()
+        // A search query is NOT the destination selected in Google Maps.
+        // Until the accessibility capture is validated, send no destination.
+        val destination = ""
         val reason = when {
             maneuver == null -> "Waiting: unsupported or missing maneuver"
             distance == null -> "Waiting: no positive distance in notification"
