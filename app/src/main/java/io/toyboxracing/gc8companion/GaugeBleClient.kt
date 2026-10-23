@@ -16,11 +16,9 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         val WRITE_UUID: UUID = UUID.fromString("a8e31c40-6b8f-4b67-a4f0-4a0b75000002")
         @Volatile private var activeClient: GaugeBleClient? = null
         fun clearNavigation() { activeClient?.sendClearNavigation() }
-        fun forwardMapsDestination(destination: String) {
-            activeClient?.sendDestinationOnly(destination)
-        }
-        fun forwardMapsNavigation(maneuver: String, distance: String, street: String, destination: String) {
-            activeClient?.sendLiveNavigation(maneuver, distance, street, destination)
+        fun startNavigation() { activeClient?.sendStartNavigation() }
+        fun forwardMapsNavigation(maneuver: String, distance: String, street: String) {
+            activeClient?.sendLiveNavigation(maneuver, distance, street)
         }
     }
     private val handler = Handler(Looper.getMainLooper())
@@ -88,25 +86,21 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         handler.post { sendPayload("GC8|1|CLEAR", false) }
     }
 
-    // A confirmed Maps place is meaningful before a usable maneuver exists.
-    // Its independent BLE message displays the destination immediately.
-    fun sendDestinationOnly(destination: String) {
-        handler.post {
-            val name = destination.replace("|", " ")
-                .filter { it.code in 32..126 }.trim().take(47)
-            if (name.isNotEmpty()) sendPayload("GC8|1|DEST|$name", false)
-        }
+    // Maps notification START is independent of a positive turn distance.
+    fun sendStartNavigation() {
+        handler.post { sendPayload("GC8|1|START", false) }
     }
 
-    fun sendLiveNavigation(maneuver: String, distance: String, street: String, destination: String) {
+    fun sendLiveNavigation(maneuver: String, distance: String, street: String) {
         handler.post {
             fun clean(s: String, max: Int) = s.replace("|", " ").filter { it.code in 32..126 }.trim().take(max)
             if (maneuver !in listOf("LEFT", "RIGHT", "STRAIGHT")) return@post
             val dist = clean(distance, 19)
             val road = clean(street, 47)
-            val dest = clean(destination, 47)
             if (dist.isEmpty() || road.isEmpty()) return@post
-            sendPayload("GC8|1|$maneuver|$dist|$road|$dest", false)
+            // Sixth field remains empty for compatibility with older firmware;
+            // no location/address or selected-place data is transmitted.
+            sendPayload("GC8|1|$maneuver|$dist|$road|", false)
         }
     }
 
@@ -126,7 +120,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             latestQueued = message
             return
         }
-        if (!isTest && message == lastSent) {
+        if (!isTest && message == lastSent && message != "GC8|1|START") {
             DriveLog.record(activity, "BLE_DUPLICATE", message)
             return
         }
@@ -176,7 +170,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 if (next != null) handler.post { sendPayload(next, false) }
                 val kind = when {
                     lastWriteMessage == "GC8|1|CLEAR" -> "Navigation cleared"
-                    lastWriteMessage?.startsWith("GC8|1|DEST|") == true -> "Destination"
+                    lastWriteMessage == "GC8|1|START" -> "Navigation started"
                     lastWriteMessage?.contains("|DEMO:") == true -> "Demo navigation"
                     else -> "Live navigation"
                 }
@@ -211,9 +205,8 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         override fun onServicesDiscovered(g: BluetoothGatt, statusCode: Int) {
             writable = g.getService(SERVICE_UUID)?.getCharacteristic(WRITE_UUID)
             status(if (writable != null) "GC8 BLE connected; write characteristic ready." else "Connected but navigation characteristic missing.")
-            if (writable != null) {
-                val confirmed = MapsDestinationCapture.confirmed(activity)
-                if (confirmed.isNotBlank()) sendDestinationOnly(confirmed)
+            if (writable != null && MapsNotificationListener.isRouteActive()) {
+                sendStartNavigation()
             }
         }
     }
