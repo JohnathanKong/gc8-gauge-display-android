@@ -26,8 +26,8 @@ RUN curl -fsSL "https://services.gradle.org/distributions/gradle-${GRADLE_VERSIO
     rm /tmp/gradle.zip
 
 RUN useradd -m -s /bin/bash android && \
-    mkdir -p /workspace /home/android/.gradle && \
-    chown -R android:android /workspace /home/android/.gradle /opt/android-sdk
+    mkdir -p /workspace /home/android/.gradle /home/android/.android && \
+    chown -R android:android /workspace /home/android/.gradle /home/android/.android /opt/android-sdk
 USER android
 WORKDIR /workspace
 CMD ["bash"]
