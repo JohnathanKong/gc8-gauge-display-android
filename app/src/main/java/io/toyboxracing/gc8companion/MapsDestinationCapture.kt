@@ -30,6 +30,10 @@ object MapsDestinationCapture {
         // Maps sends multiple content events from the same place screen.
         // Do not reset the armed Start or renew freshness on each event.
         if (name == oldName && address == oldAddress) return
+        // A late update from the same place sheet must not overwrite a
+        // destination that was just confirmed during the Start transition.
+        if (name == p.getString("confirmed_name", "") &&
+            address == p.getString("confirmed_address", "")) return
         p.edit().putString("candidate_name", name)
             .putString("candidate_address", address)
             .putLong("candidate_at", SystemClock.elapsedRealtime())
