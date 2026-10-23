@@ -94,6 +94,21 @@ class MainActivity : Activity() {
             setOnClickListener { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
         })
         root.addView(Button(this).apply {
+            text = "Enable Maps destination reader (Accessibility)"
+            setOnClickListener {
+                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Copy destination screen diagnostics"
+            setOnClickListener {
+                val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                manager.setPrimaryClip(ClipData.newPlainText("GC8 Maps destination screen",
+                    MapsDestinationCapture.read(this@MainActivity)))
+                Toast.makeText(this@MainActivity, "Copied. Contains visible Maps text; review before sharing.", Toast.LENGTH_LONG).show()
+            }
+        })
+        root.addView(Button(this).apply {
             text = "Refresh captured data"
             setOnClickListener { refresh() }
         })
