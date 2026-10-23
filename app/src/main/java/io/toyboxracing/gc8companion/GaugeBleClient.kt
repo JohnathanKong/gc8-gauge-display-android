@@ -16,6 +16,9 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         val WRITE_UUID: UUID = UUID.fromString("a8e31c40-6b8f-4b67-a4f0-4a0b75000002")
         @Volatile private var activeClient: GaugeBleClient? = null
         fun clearNavigation() { activeClient?.sendClearNavigation() }
+        fun forwardMapsDestination(destination: String) {
+            activeClient?.sendDestinationOnly(destination)
+        }
         fun forwardMapsNavigation(maneuver: String, distance: String, street: String, destination: String) {
             activeClient?.sendLiveNavigation(maneuver, distance, street, destination)
         }
@@ -83,6 +86,16 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     }
     fun sendClearNavigation() {
         handler.post { sendPayload("GC8|1|CLEAR", false) }
+    }
+
+    // A confirmed Maps place is meaningful before a usable maneuver exists.
+    // Its independent BLE message displays the destination immediately.
+    fun sendDestinationOnly(destination: String) {
+        handler.post {
+            val name = destination.replace("|", " ")
+                .filter { it.code in 32..126 }.trim().take(47)
+            if (name.isNotEmpty()) sendPayload("GC8|1|DEST|$name", false)
+        }
     }
 
     fun sendLiveNavigation(maneuver: String, distance: String, street: String, destination: String) {
@@ -192,6 +205,10 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         override fun onServicesDiscovered(g: BluetoothGatt, statusCode: Int) {
             writable = g.getService(SERVICE_UUID)?.getCharacteristic(WRITE_UUID)
             status(if (writable != null) "GC8 BLE connected; write characteristic ready." else "Connected but navigation characteristic missing.")
+            if (writable != null) {
+                val confirmed = MapsDestinationCapture.confirmed(activity)
+                if (confirmed.isNotBlank()) sendDestinationOnly(confirmed)
+            }
         }
     }
     private fun stopScan() {
