@@ -32,11 +32,11 @@ class MainActivity : Activity() {
             setPadding(32, 48, 32, 32)
         }
         root.addView(TextView(this).apply {
-            text = "GC8 Companion — Maps diagnostics"
+            text = "GC8 Companion — Navigation"
             textSize = 23f
         })
         root.addView(TextView(this).apply {
-            text = "Search for a destination or use your phone's voice assistant, then tap Start in Google Maps. Return here to inspect the most recent Google Maps notification. This data stays on your phone unless you copy it."
+            text = "Connect your GC8 display, grant notification access, and start navigation in Google Maps. The gauge receives turn instructions from Maps notifications without accessibility access. This diagnostic data stays on your phone unless you copy it."
             textSize = 15f
         })
         val destination = EditText(this).apply {
@@ -52,8 +52,6 @@ class MainActivity : Activity() {
                 if (query.isEmpty()) {
                     Toast.makeText(this@MainActivity, "Enter a destination first.", Toast.LENGTH_SHORT).show()
                 } else {
-                    getSharedPreferences("gc8_navigation", MODE_PRIVATE)
-                        .edit().putString("destination", query).apply()
                     val uri = Uri.parse("geo:0,0?q=" + Uri.encode(query))
                     val intent = Intent(Intent.ACTION_VIEW, uri).apply {
                         setPackage("com.google.android.apps.maps")
@@ -92,21 +90,6 @@ class MainActivity : Activity() {
         root.addView(Button(this).apply {
             text = "Notification access settings"
             setOnClickListener { startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)) }
-        })
-        root.addView(Button(this).apply {
-            text = "Enable Maps destination reader (Accessibility)"
-            setOnClickListener {
-                startActivity(Intent(Settings.ACTION_ACCESSIBILITY_SETTINGS))
-            }
-        })
-        root.addView(Button(this).apply {
-            text = "Copy destination screen diagnostics"
-            setOnClickListener {
-                val manager = getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
-                manager.setPrimaryClip(ClipData.newPlainText("GC8 Maps destination screen",
-                    MapsDestinationCapture.read(this@MainActivity)))
-                Toast.makeText(this@MainActivity, "Copied. Contains visible Maps text; review before sharing.", Toast.LENGTH_LONG).show()
-            }
         })
         root.addView(Button(this).apply {
             text = "Refresh captured data"
