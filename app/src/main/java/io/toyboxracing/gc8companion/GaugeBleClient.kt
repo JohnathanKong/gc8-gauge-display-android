@@ -429,8 +429,10 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
         if (writable == null || linkInitialized) return
         linkInitialized = true
         // Preserve all existing START/CLEAR + clock behavior.
-        if (MapsNotificationListener.isRouteActive()) sendStartNavigation()
-        else sendClearNavigation()
+        if (MapsNotificationListener.isRouteActive()) {
+            sendStartNavigation()
+            MapsNotificationListener.replayCurrentGuidance()
+        } else sendClearNavigation()
         handler.postDelayed({ sendClockTime() }, 350L)
     }
 
