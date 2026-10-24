@@ -17,6 +17,8 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     companion object {
         val SERVICE_UUID: UUID = UUID.fromString("a8e31c40-6b8f-4b67-a4f0-4a0b75000001")
         val WRITE_UUID: UUID = UUID.fromString("a8e31c40-6b8f-4b67-a4f0-4a0b75000002")
+        val GARAGE_EVENT_UUID: UUID = UUID.fromString("a8e31c40-6b8f-4b67-a4f0-4a0b75000003")
+        private val CCCD_UUID: UUID = UUID.fromString("00002902-0000-1000-8000-00805f9b34fb")
         @Volatile private var activeClient: GaugeBleClient? = null
         fun clearNavigation() { activeClient?.sendClearNavigation() }
         fun pauseNavigation() { activeClient?.sendHoldNavigation() }
@@ -31,6 +33,8 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     private var scanning = false
     private var gatt: BluetoothGatt? = null
     @Volatile private var writable: BluetoothGattCharacteristic? = null
+    private var garageEvents: BluetoothGattCharacteristic? = null
+    private var lastGaragePressAt = 0L
     @Volatile private var writePending = false
     private var latestQueued: String? = null
     private var lastSent: String? = null
@@ -241,12 +245,53 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 DriveLog.record(activity, "BLE_WRITE_TIMEOUT", message)
                 latestQueued = null
                 writable = null
+                garageEvents = null
                 writePending = false
                 lastSent = null
                 status("BLE write timed out; resetting connection.")
                 try { connection.disconnect() } catch (_: SecurityException) {}
             }
         }, 2500L)
+    }
+
+    private fun garageButtonPressed() {
+        val now = SystemClock.elapsedRealtime()
+        // Physical PWR debounce is handled in firmware. Android adds its own
+        // lockout against duplicate BLE notifications and reconnects.
+        if (now - lastGaragePressAt < 5000L) {
+            DriveLog.record(activity, "GARAGE_SKIPPED", "Duplicate PWR event")
+            return
+        }
+        lastGaragePressAt = now
+        DriveLog.record(activity, "GARAGE_BUTTON", "Upper Waveshare PWR tapped")
+
+        // Deliberately DO NOT operate a physical garage door with an
+        // unconfigured/unverified vendor integration. Meross exposes
+        // open/close actions, not a publicly documented blind toggle API.
+        // Once the user's Meross setup is known, this is the ONLY place
+        // where a verified local/secure action will be wired.
+        status("Top garage button detected; Meross control not configured.")
+        sendPayload("GC8|1|GARAGE|RESULT|NOT_READY", false)
+    }
+
+    private fun handleGarageEvent(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic,
+                                  bytes: ByteArray) {
+        if (g !== gatt || characteristic.uuid != GARAGE_EVENT_UUID) return
+        val text = bytes.toString(Charsets.US_ASCII)
+        if (text == "GC8|1|GARAGE|PRESS") {
+            DriveLog.record(activity, "GARAGE_EVENT", "PRESS received over GC8 BLE")
+            garageButtonPressed()
+        } else {
+            DriveLog.record(activity, "GARAGE_IGNORED", "Unknown BLE event")
+        }
+    }
+
+    private fun afterGarageSubscription() {
+        if (writable == null) return
+        // Preserve all existing START/CLEAR + clock behavior.
+        if (MapsNotificationListener.isRouteActive()) sendStartNavigation()
+        else sendClearNavigation()
+        handler.postDelayed({ sendClockTime() }, 350L)
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -289,6 +334,38 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 }
             }
         }
+        override fun onCharacteristicChanged(
+            g: BluetoothGatt, characteristic: BluetoothGattCharacteristic,
+            value: ByteArray
+        ) {
+            handler.post { handleGarageEvent(g, characteristic, value) }
+        }
+
+        @Suppress("DEPRECATION")
+        override fun onCharacteristicChanged(
+            g: BluetoothGatt, characteristic: BluetoothGattCharacteristic
+        ) {
+            if (Build.VERSION.SDK_INT < 33) {
+                val received = characteristic.value?.clone() ?: return
+                handler.post { handleGarageEvent(g, characteristic, received) }
+            }
+        }
+
+        override fun onDescriptorWrite(
+            g: BluetoothGatt, descriptor: BluetoothGattDescriptor, statusCode: Int
+        ) {
+            if (g !== gatt || descriptor.uuid != CCCD_UUID) return
+            handler.post {
+                if (g !== gatt) return@post
+                DriveLog.record(activity, "GARAGE_SUBSCRIBE",
+                    "status=$statusCode")
+                if (statusCode != BluetoothGatt.GATT_SUCCESS) {
+                    status("Garage side-button events unavailable; navigation unaffected.")
+                }
+                afterGarageSubscription()
+            }
+        }
+
         override fun onConnectionStateChange(g: BluetoothGatt, statusCode: Int, newState: Int) {
             if (statusCode == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 retryCount = 0
@@ -316,16 +393,44 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             try { g.discoverServices() } catch (_: SecurityException) { status("Permission missing.") }
         }
         override fun onServicesDiscovered(g: BluetoothGatt, statusCode: Int) {
-            writable = g.getService(SERVICE_UUID)?.getCharacteristic(WRITE_UUID)
+            if (g !== gatt) return
+            val service = g.getService(SERVICE_UUID)
+            writable = service?.getCharacteristic(WRITE_UUID)
+            garageEvents = service?.getCharacteristic(GARAGE_EVENT_UUID)
             status(if (writable != null) "GC8 BLE connected; write characteristic ready." else "Connected but navigation characteristic missing.")
-            if (writable != null) {
-                // On reconnect explicitly synchronize the current route
-                // state FIRST. CLEAR is more important than the clock.
-                if (MapsNotificationListener.isRouteActive()) sendStartNavigation()
-                else sendClearNavigation()
-                // Clock follows the small, high-priority route-state packet,
-                // rather than being dropped while its GATT write is pending.
-                handler.postDelayed({ sendClockTime() }, 350L)
+            if (writable == null) return
+            val events = garageEvents
+            val descriptor = events?.getDescriptor(CCCD_UUID)
+            if (events == null || descriptor == null) {
+                DriveLog.record(activity, "GARAGE_SUBSCRIBE", "Old firmware; no notification characteristic")
+                afterGarageSubscription()
+                return
+            }
+            try {
+                if (!g.setCharacteristicNotification(events, true)) {
+                    status("Garage side-button event notification unavailable.")
+                    afterGarageSubscription()
+                    return
+                }
+                val started = if (Build.VERSION.SDK_INT >= 33) {
+                    g.writeDescriptor(
+                        descriptor, BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    ) == BluetoothStatusCodes.SUCCESS
+                } else {
+                    @Suppress("DEPRECATION")
+                    descriptor.value = BluetoothGattDescriptor.ENABLE_NOTIFICATION_VALUE
+                    @Suppress("DEPRECATION")
+                    g.writeDescriptor(descriptor)
+                }
+                if (!started) {
+                    status("Garage side-button subscribe could not start.")
+                    afterGarageSubscription()
+                }
+                // GATT descriptor write callback starts route and clock writes.
+                // These operations must not overlap a descriptor write.
+            } catch (_: SecurityException) {
+                status("Nearby devices permission missing for garage button.")
+                afterGarageSubscription()
             }
         }
     }
