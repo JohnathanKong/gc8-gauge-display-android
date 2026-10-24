@@ -162,7 +162,10 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             handler.postDelayed({
                 if (scanning) {
                     stopScan()
-                    status("Waveshare not in range; waiting to reconnect.")
+                    // No advertising packet does not prove out-of-range:
+                    // Android may already hold the HID connection.
+                    status("No GC8 advertisement; trying paired device again.")
+                    tryBondedFirst = true
                     retry(20000L)
                 }
             }, 12000)
@@ -216,6 +219,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
         override fun onScanFailed(errorCode: Int) {
             scanning = false
             status("Scan failed: $errorCode")
+            tryBondedFirst = true
             retry()
         }
     }
@@ -530,6 +534,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                     DriveLog.record(activity, "BLE_BONDED_FALLBACK", "Paired GATT failed; scanning")
                 try { g.close() } catch (_: SecurityException) {}
                 if (g === gatt) gatt = null
+                if (!hadBondedAttempt) tryBondedFirst = true
                 if (autoReconnect) {
                     retryCount = (retryCount + 1).coerceAtMost(6)
                     retry(if (hadBondedAttempt) 1000L else if (retryCount < 2) 5000L else 20000L)
