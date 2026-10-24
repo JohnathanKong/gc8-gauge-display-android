@@ -335,5 +335,22 @@ class MapsNotificationListener : NotificationListenerService() {
         private const val MAPS_PACKAGE = "com.google.android.apps.maps"
         @Volatile private var instance: MapsNotificationListener? = null
         fun isRouteActive(): Boolean = instance?.navigationActive == true
+
+        // A BLE reconnect can happen after the last Maps notification changed.
+        // Replay its current guidance once; otherwise a parking exit or fixed
+        // final turn can remain invisible until Maps publishes new text.
+        fun replayCurrentGuidance() {
+            val listener = instance ?: return
+            listener.watchdog.post {
+                if (!listener.navigationActive) return@post
+                listener.lastSent = null
+                val current = try {
+                    listener.activeNotifications?.firstOrNull {
+                        it.packageName == MAPS_PACKAGE && listener.isNavigation(it)
+                    }
+                } catch (_: Exception) { null }
+                if (current != null) listener.capture(current)
+            }
+        }
     }
 }
