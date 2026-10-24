@@ -66,7 +66,7 @@ class GarageRoutineTrigger(context: Context) {
         // concurrent touches to shared preferences and Bluetooth UI state.
         val now = android.os.SystemClock.elapsedRealtime()
         val last = prefs.getLong("last_emit_elapsed", -COOLDOWN_MS)
-        if (now - last < COOLDOWN_MS)
+        if (now >= last && now - last < COOLDOWN_MS)
             return Result(false, "Duplicate button press ignored.")
 
         val channel = NotificationChannel(
@@ -81,7 +81,7 @@ class GarageRoutineTrigger(context: Context) {
         // not count as a new "Notification received" in Galaxy routines.
         val id = (prefs.getInt("sequence", 0) + 1).let { if (it <= 0) 1 else it }
         val notification = Notification.Builder(app, CHANNEL_ID)
-            .setSmallIcon(android.R.drawable.ic_lock_lock)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
             .setContentTitle(KEYWORD)
             .setContentText("GC8 Waveshare garage button pressed")
             .setCategory(Notification.CATEGORY_STATUS)
