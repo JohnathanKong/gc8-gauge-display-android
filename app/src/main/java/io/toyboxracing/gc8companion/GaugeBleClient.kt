@@ -8,6 +8,9 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.*
 import java.util.UUID
+import java.util.Calendar
+import java.util.Locale
+import android.text.format.DateFormat
 
 /** Connects only to the GC8 service UUID; no audio profile interference. */
 class GaugeBleClient(private val activity: Activity, private val report: (String) -> Unit) {
@@ -33,6 +36,30 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     private var lastWriteMessage: String? = null
     private var autoReconnect = false
     private var retryCount = 0
+    private val clockSync = object : Runnable {
+        override fun run() {
+            // Low-priority clock refresh must not displace a turn instruction
+            // in the BLE single-slot queue.
+            if (writable != null && !writePending && latestQueued == null) {
+                sendClockTime()
+            }
+            if (autoReconnect) handler.postDelayed(this, 60_000L)
+        }
+    }
+
+    private fun sendClockTime() {
+        handler.post {
+            if (writable == null || writePending || latestQueued != null) return@post
+            val now = Calendar.getInstance()
+            val mode = if (DateFormat.is24HourFormat(activity)) "24" else "12"
+            val payload = String.format(Locale.US, "GC8|1|TIME|%02d:%02d:%02d|%s",
+                now.get(Calendar.HOUR_OF_DAY),
+                now.get(Calendar.MINUTE),
+                now.get(Calendar.SECOND), mode)
+            sendPayload(payload, false)
+        }
+    }
+
     private fun status(value: String) {
         DriveLog.record(activity, "BLE_STATUS", value)
         activity.runOnUiThread { report(value) }
@@ -40,6 +67,8 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
 
     fun connect() {
         autoReconnect = true
+        handler.removeCallbacks(clockSync)
+        handler.postDelayed(clockSync, 60_000L)
         if (Build.VERSION.SDK_INT >= 31 &&
             (activity.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED ||
              activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)) {
@@ -171,6 +200,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 val kind = when {
                     lastWriteMessage == "GC8|1|CLEAR" -> "Navigation cleared"
                     lastWriteMessage == "GC8|1|START" -> "Navigation started"
+                    lastWriteMessage?.startsWith("GC8|1|TIME|") == true -> "Phone time"
                     lastWriteMessage?.contains("|DEMO:") == true -> "Demo navigation"
                     else -> "Live navigation"
                 }
@@ -205,8 +235,11 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         override fun onServicesDiscovered(g: BluetoothGatt, statusCode: Int) {
             writable = g.getService(SERVICE_UUID)?.getCharacteristic(WRITE_UUID)
             status(if (writable != null) "GC8 BLE connected; write characteristic ready." else "Connected but navigation characteristic missing.")
-            if (writable != null && MapsNotificationListener.isRouteActive()) {
-                sendStartNavigation()
+            if (writable != null) {
+                // Clock is available even when Google Maps is not running.
+                // START, when applicable, follows this short GATT write.
+                sendClockTime()
+                if (MapsNotificationListener.isRouteActive()) sendStartNavigation()
             }
         }
     }
@@ -217,6 +250,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     }
     fun close() {
         autoReconnect = false
+        handler.removeCallbacks(clockSync)
         if (activeClient === this) activeClient = null
         stopScan()
         try { gatt?.disconnect(); gatt?.close() } catch (_: SecurityException) {}
