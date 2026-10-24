@@ -95,31 +95,32 @@ object BootAppLauncher {
             }
         }
 
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
-        if (!manager.areNotificationsEnabled()) {
-            return Result(false, "Enable GC8 notifications to launch apps from the background")
-        }
-        manager.createNotificationChannel(NotificationChannel(
-            CHANNEL, "BOOT button app shortcuts", NotificationManager.IMPORTANCE_HIGH
-        ).apply {
-            description = "Tap to open the Android app selected for the Waveshare BOOT key"
-            enableVibration(false)
-            setSound(null, null)
-        })
-        val launch = PendingIntent.getActivity(context, 0, intent,
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
-        val notice = Notification.Builder(context, CHANNEL)
-            .setSmallIcon(android.R.drawable.ic_menu_view)
-            .setContentTitle("Waveshare BOOT: " + chosenLabel(context))
-            .setContentText("Tap to open the selected app")
-            .setContentIntent(launch)
-            .setAutoCancel(true)
-            .setCategory(Notification.CATEGORY_STATUS)
-            .build()
         return try {
+            val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
+            if (!manager.areNotificationsEnabled()) {
+                return Result(false, "Enable GC8 notifications to launch apps from the background")
+            }
+            manager.createNotificationChannel(NotificationChannel(
+                CHANNEL, "BOOT button app shortcuts", NotificationManager.IMPORTANCE_HIGH
+            ).apply {
+                description = "Tap to open the Android app selected for the Waveshare BOOT key"
+                enableVibration(false)
+                setSound(null, null)
+            })
+            val launch = PendingIntent.getActivity(context, 0, intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE)
+            val notice = Notification.Builder(context, CHANNEL)
+                .setSmallIcon(android.R.drawable.ic_menu_view)
+                .setContentTitle("Waveshare BOOT: " + chosenLabel(context))
+                .setContentText("Tap to open the selected app")
+                .setContentIntent(launch)
+                .setAutoCancel(true)
+                .setCategory(Notification.CATEGORY_STATUS)
+                .build()
             manager.notify(NOTICE_ID, notice)
             Result(true, "Tap the GC8 notification to open " + chosenLabel(context))
         } catch (e: Exception) {
+            DriveLog.record(context, "BOOT_APP_ALERT", "Notification unavailable: " + e.javaClass.simpleName)
             Result(false, "Unable to show app-launch notification")
         }
     }
