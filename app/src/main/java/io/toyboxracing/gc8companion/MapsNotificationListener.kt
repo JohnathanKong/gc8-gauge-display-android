@@ -28,13 +28,16 @@ class MapsNotificationListener : NotificationListenerService() {
     private fun isNavigation(sbn: StatusBarNotification): Boolean {
         val title = sbn.notification.extras
             .getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty().trim()
+        val text = sbn.notification.extras
+            .getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty().trim()
         // Exclude Maps review prompts and account notifications: notification
         // access can see other Maps content, not only turn-by-turn guidance.
         return title.startsWith("Starting navigation", ignoreCase = true) ||
             title.startsWith("Rerouting", ignoreCase = true) ||
             Regex("""(?i)\b(turn|head|continue|keep|bear|merge|exit)\b""")
                 .containsMatchIn(title) ||
-            (navigationActive && destinationSidePattern.containsMatchIn(title))
+            (navigationActive && (destinationSidePattern.containsMatchIn(title) ||
+                                  destinationSidePattern.containsMatchIn(text)))
     }
 
     private fun beginRoute() {
@@ -289,7 +292,7 @@ class MapsNotificationListener : NotificationListenerService() {
             "RIGHT" -> "TURN RIGHT"
             "STRAIGHT" -> "CONTINUE"
             else -> ""
-        } else street
+        } else street.orEmpty()
         val reason = when {
             maneuver == null -> "Waiting: unsupported or missing maneuver"
             distance == null -> "Waiting: no positive distance in notification"
