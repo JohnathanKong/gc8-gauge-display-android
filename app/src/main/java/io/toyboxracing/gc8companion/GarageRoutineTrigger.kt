@@ -32,6 +32,22 @@ class GarageRoutineTrigger(context: Context) {
     private val notifications = app.getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     private val handler = Handler(Looper.getMainLooper())
 
+    // The notification text is the configurable IF phrase in Samsung Routines,
+    // not the name of a SmartThings device. Preserve the old default for
+    // existing routine configurations until the owner explicitly edits it.
+    fun notificationTriggerText(): String =
+        prefs.getString("notification_trigger_text", KEYWORD).orEmpty().ifBlank { KEYWORD }
+
+    fun setNotificationTriggerText(value: String): Result {
+        // Reconfiguring an enabled physical-door trigger would be surprising.
+        if (isArmed()) return Result(false, "Disable garage button before editing the trigger text.")
+        val normalized = value.trim().replace(Regex("\\s+"), " ")
+        if (normalized.length !in 3..64 || normalized.any { it.code !in 32..126 })
+            return Result(false, "Enter 3–64 printable characters for the routine notification.")
+        prefs.edit().putString("notification_trigger_text", normalized).apply()
+        return Result(true, "Saved. Set Samsung Routines IF notification text to exactly: $normalized")
+    }
+
     fun isArmed(): Boolean = prefs.getBoolean("enabled", false)
     fun trustedAddress(): String = prefs.getString("gc8_ble_address", "").orEmpty()
     fun canPost(): Boolean = notifications.areNotificationsEnabled() &&
@@ -82,7 +98,7 @@ class GarageRoutineTrigger(context: Context) {
         val id = (prefs.getInt("sequence", 0) + 1).let { if (it <= 0) 1 else it }
         val notification = Notification.Builder(app, CHANNEL_ID)
             .setSmallIcon(android.R.drawable.ic_dialog_info)
-            .setContentTitle(KEYWORD)
+            .setContentTitle(notificationTriggerText())
             .setContentText("GC8 Waveshare garage button pressed")
             .setCategory(Notification.CATEGORY_STATUS)
             .setAutoCancel(true)
