@@ -1,3 +1,5 @@
+import java.util.Base64
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
@@ -35,7 +37,7 @@ val generateGc8LauncherIcon = tasks.register("generateGc8LauncherIcon") {
     doLast {
         val destination = output.asFile
         destination.parentFile.mkdirs()
-        destination.writeBytes(java.util.Base64.getMimeDecoder().decode(source.asFile.readText().trim()))
+        destination.writeBytes(Base64.getMimeDecoder().decode(source.asFile.readText().trim()))
     }
 }
 tasks.named("preBuild") { dependsOn(generateGc8LauncherIcon) }
