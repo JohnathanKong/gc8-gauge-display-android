@@ -421,6 +421,16 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                 DriveLog.record(activity, "GARAGE_EVENT", "Upper PWR over BLE")
                 garageButtonPressed()
             }
+            // Independent confirmation the Waveshare read lower BOOT. The
+            // Android app does NOT invoke Gemini: Android handles BLE HID.
+            // SENT/MEDIA only mean ESP32 accepted an HID report submission,
+            // not that One UI delivered a key or started Gemini.
+            "GC8|1|VOICE|TAP" -> DriveLog.record(activity, "VOICE_BUTTON", "BOOT short press detected")
+            "GC8|1|VOICE|HOLD" -> DriveLog.record(activity, "VOICE_BUTTON", "BOOT long press detected")
+            "GC8|1|VOICE|SENT" -> DriveLog.record(activity, "VOICE_BUTTON", "Voice HID report submitted")
+            "GC8|1|VOICE|MEDIA" -> DriveLog.record(activity, "VOICE_BUTTON", "Media HID hold submitted")
+            "GC8|1|VOICE|UNSUB" -> DriveLog.record(activity, "VOICE_BUTTON", "Voice/media HID not subscribed or bonded")
+            "GC8|1|VOICE|FAIL" -> DriveLog.record(activity, "VOICE_BUTTON", "Voice/media HID transport error")
             else -> DriveLog.record(activity, "BUTTON_IGNORED", "Unknown BLE button event")
         }
     }
