@@ -1,7 +1,6 @@
 package io.toyboxracing.gc8companion
 
 import android.Manifest
-import android.app.Activity
 import android.bluetooth.*
 import android.bluetooth.le.*
 import android.content.Context
@@ -13,7 +12,7 @@ import java.util.Locale
 import android.text.format.DateFormat
 
 /** Connects only to the GC8 service UUID; no audio profile interference. */
-class GaugeBleClient(private val activity: Activity, private val report: (String) -> Unit) {
+class GaugeBleClient(private val activity: Context, private val report: (String) -> Unit) {
     companion object {
         val SERVICE_UUID: UUID = UUID.fromString("a8e31c40-6b8f-4b67-a4f0-4a0b75000001")
         val WRITE_UUID: UUID = UUID.fromString("a8e31c40-6b8f-4b67-a4f0-4a0b75000002")
@@ -56,6 +55,13 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     }
     private var autoReconnect = false
     private var retryCount = 0
+    private var connecting = false
+    private val retryTask = Runnable { if (autoReconnect) connect() }
+    private fun retry(afterMs: Long = 20000L) {
+        if (!autoReconnect) return
+        handler.removeCallbacks(retryTask)
+        handler.postDelayed(retryTask, afterMs)
+    }
     private val clockSync = object : Runnable {
         override fun run() {
             // Low-priority clock refresh must not displace a turn instruction
@@ -84,27 +90,33 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
 
     private fun status(value: String) {
         DriveLog.record(activity, "BLE_STATUS", value)
-        activity.runOnUiThread { report(value) }
+        handler.post { report(value) }
     }
 
     fun connect() {
         autoReconnect = true
+        if (scanning || connecting || writable != null) return
+        handler.removeCallbacks(retryTask)
         handler.removeCallbacks(clockSync)
         handler.postDelayed(clockSync, 60_000L)
         if (Build.VERSION.SDK_INT >= 31 &&
             (activity.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN) != PackageManager.PERMISSION_GRANTED ||
              activity.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT) != PackageManager.PERMISSION_GRANTED)) {
-            activity.requestPermissions(arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT), 7301)
-            status("Grant Nearby devices permission, then tap Connect again.")
+            status("Nearby devices permission required. Grant it in GC8 Companion.")
+            retry(30000L)
             return
         }
         val adapter = manager.adapter
         if (adapter == null || !adapter.isEnabled) {
-            status("Enable Bluetooth and retry.")
+            status("Enable Bluetooth; GC8 will reconnect automatically.")
+            retry(30000L)
             return
         }
-        val scanner = adapter.bluetoothLeScanner ?: run { status("BLE scanner unavailable."); return }
-        if (scanning) return
+        val scanner = adapter.bluetoothLeScanner ?: run {
+            status("BLE scanner unavailable.")
+            retry(30000L)
+            return
+        }
         scanning = true
         status("Scanning for GC8 display…")
         try {
@@ -115,23 +127,33 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             handler.postDelayed({
                 if (scanning) {
                     stopScan()
-                    status("GC8 not found; display firmware must advertise the service UUID.")
+                    status("Waveshare not in range; waiting to reconnect.")
+                    retry(20000L)
                 }
             }, 12000)
-        } catch (_: SecurityException) { scanning = false; status("Bluetooth permission missing.") }
+        } catch (_: SecurityException) { scanning = false; status("Bluetooth permission missing."); retry(30000L) }
     }
 
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             if (!scanning) return
             stopScan()
+            connecting = true
             status("Found GC8 service; connecting…")
             try {
                 gatt?.close()
                 gatt = result.device.connectGatt(activity, false, gattCallback)
-            } catch (e: Exception) { status("Connect failed: ${e.javaClass.simpleName}") }
+            } catch (e: Exception) {
+                connecting = false
+                status("Connect failed: ${e.javaClass.simpleName}")
+                retry()
+            }
         }
-        override fun onScanFailed(errorCode: Int) { scanning = false; status("Scan failed: $errorCode") }
+        override fun onScanFailed(errorCode: Int) {
+            scanning = false
+            status("Scan failed: $errorCode")
+            retry()
+        }
     }
     fun sendClearNavigation() {
         handler.post { sendPayload("GC8|1|CLEAR", false) }
@@ -404,8 +426,14 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         }
 
         override fun onConnectionStateChange(g: BluetoothGatt, statusCode: Int, newState: Int) {
+            if (g !== gatt || !autoReconnect) {
+                try { g.close() } catch (_: SecurityException) {}
+                return
+            }
+            connecting = false
             if (statusCode == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 retryCount = 0
+                handler.removeCallbacks(retryTask)
                 status("Connected; discovering services…")
                 try {
                     if (!g.requestMtu(185)) g.discoverServices()
@@ -419,9 +447,10 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 lastSent = null
                 status("Disconnected (status $statusCode)")
                 try { g.close() } catch (_: SecurityException) {}
-                if (autoReconnect && retryCount < 6) {
-                    retryCount++
-                    handler.postDelayed({ if (autoReconnect) connect() }, 5000L)
+                if (g === gatt) gatt = null
+                if (autoReconnect) {
+                    retryCount = (retryCount + 1).coerceAtMost(6)
+                    retry(if (retryCount < 2) 5000L else 20000L)
                 }
             }
         }
@@ -488,10 +517,16 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     }
     fun close() {
         autoReconnect = false
+        connecting = false
+        handler.removeCallbacks(retryTask)
         handler.removeCallbacks(clockSync)
         if (activeClient === this) activeClient = null
         stopScan()
         try { gatt?.disconnect(); gatt?.close() } catch (_: SecurityException) {}
         gatt = null
+        writable = null
+        garageEvents = null
+        latestQueued = null
+        linkInitialized = false
     }
 }
