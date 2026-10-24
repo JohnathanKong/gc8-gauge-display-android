@@ -52,7 +52,6 @@ import androidx.core.view.WindowInsetsCompat
  */
 class MainActivity : Activity() {
     private val exportRequestCode = 7402
-    private val chooseBootAppRequestCode = 7403
     private val bg = Color.rgb(5, 12, 23)
     private val panel = Color.rgb(13, 29, 50)
     private val text = Color.rgb(240, 247, 255)
@@ -378,38 +377,6 @@ class MainActivity : Activity() {
         }, 0)
         put(page, device, 14)
 
-        val boot = card()
-        put(boot, heading("Lower BOOT button", "Choose its Android action", "app"), 12)
-        put(boot, label("Selected: " + BootAppLauncher.chosenLabel(this),
-            15f, if (BootAppLauncher.isAssistantMode(this)) green else muted, true), 11)
-        put(boot, action("Use default assistant") {
-            BootAppLauncher.useDefaultAssistant(this)
-            showTab(0)
-        }, 9)
-        put(boot, action("Change phone's default assistant", false) {
-            try {
-                startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
-            } catch (_: Exception) {
-                startActivity(Intent(Settings.ACTION_SETTINGS))
-            }
-        }, 9)
-        put(boot, action("Choose a different app", false) { pickBootApp() }, 9)
-        put(boot, action("Disable BOOT shortcut", false) {
-            BootAppLauncher.clear(this)
-            showTab(0)
-        }, 10)
-        put(boot, label(
-            "Default assistant follows your Fold8 setting (Settings → Apps → " +
-            "Choose default apps → Digital assistant app). BOOT tries a " +
-            "voice-first request when Companion is open. Google, Gemini or " +
-            "another selected assistant controls whether the microphone starts. " +
-            "When the phone is locked or Companion is in the background, " +
-            "tap the GC8 notification to open the assistant. " +
-            "Upper PWR garage control is unchanged.",
-            12f, muted
-        ), 0)
-        put(page, boot, 14)
-
         val nav = card()
         put(nav, heading("Google Maps", "Turn instructions from phone notifications", "nav"), 12)
         put(nav, label(if (listenerAllowed()) "Notification access granted" else "Notification access not enabled",
@@ -612,22 +579,6 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun pickBootApp() {
-        // Ask Android to pick a MAIN/LAUNCHER activity, not a package name
-        // typed by the user. This avoids app hardcoding and does not launch
-        // the selected app during configuration.
-        try {
-            val launchable = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
-            val picker = Intent(Intent.ACTION_PICK_ACTIVITY).apply {
-                putExtra(Intent.EXTRA_INTENT, launchable)
-                putExtra(Intent.EXTRA_TITLE, "BOOT button: choose an app")
-            }
-            startActivityForResult(picker, chooseBootAppRequestCode)
-        } catch (e: Exception) {
-            Toast.makeText(this, "App picker unavailable on this phone.", Toast.LENGTH_LONG).show()
-        }
-    }
-
     private fun exportDiagnostics() {
         try {
             startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
@@ -644,25 +595,6 @@ class MainActivity : Activity() {
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
         if (resultCode != RESULT_OK) return
-        if (requestCode == chooseBootAppRequestCode) {
-            // The system PICK_ACTIVITY result is an Intent identifying the
-            // actual launcher component chosen by the owner.
-            val chosen = data?.component
-                ?: data?.resolveActivity(packageManager)
-            if (chosen == null) {
-                Toast.makeText(this, "No launchable app selected.", Toast.LENGTH_LONG).show()
-                return
-            }
-            val label = try {
-                packageManager.getActivityInfo(chosen, 0).loadLabel(packageManager).toString()
-            } catch (_: Exception) {
-                chosen.packageName
-            }
-            BootAppLauncher.save(this, chosen, label)
-            Toast.makeText(this, "BOOT assigned to " + label, Toast.LENGTH_SHORT).show()
-            if (currentTab == 0) showTab(0)
-            return
-        }
         if (requestCode != exportRequestCode) return
         val uri = data?.data ?: return
         try {
@@ -692,7 +624,6 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
-        BootAppLauncher.setActivityVisible(this)
         ContextCompat.registerReceiver(this, bridgeReceiver,
             IntentFilter(Gc8ConnectionService.ACTION_STATUS), ContextCompat.RECEIVER_NOT_EXPORTED)
         lastBleMessage = Gc8ConnectionService.latestStatus
@@ -700,7 +631,6 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
-        BootAppLauncher.setActivityHidden(this)
         unregisterReceiver(bridgeReceiver)
         super.onPause()
     }
@@ -851,12 +781,6 @@ class MainActivity : Activity() {
                     line(canvas, 8f, 9f, 16f, 9f)
                     line(canvas, 8f, 13f, 16f, 13f)
                     line(canvas, 8f, 17f, 14f, 17f)
-                }
-                "app" -> {
-                    canvas.drawRoundRect(3f, 3f, 10.5f, 10.5f, 1.8f, 1.8f, paint)
-                    canvas.drawRoundRect(13.5f, 3f, 21f, 10.5f, 1.8f, 1.8f, paint)
-                    canvas.drawRoundRect(3f, 13.5f, 10.5f, 21f, 1.8f, 1.8f, paint)
-                    canvas.drawRoundRect(13.5f, 13.5f, 21f, 21f, 1.8f, 1.8f, paint)
                 }
                 "ble" -> {
                     line(canvas, 12f, 2f, 12f, 22f)
