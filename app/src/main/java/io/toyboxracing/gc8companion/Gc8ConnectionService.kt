@@ -39,7 +39,7 @@ class Gc8ConnectionService : Service() {
         @Volatile var latestStatus: String = "Service stopped"
             private set
 
-        fun enabled(context: Context): Boolean = context.getSharedPreferences(PREFS, MODE_PRIVATE)
+        fun enabled(context: Context): Boolean = context.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
             .getBoolean(ENABLED, false)
 
         fun hasBlePermission(context: Context): Boolean = Build.VERSION.SDK_INT < 31 ||
