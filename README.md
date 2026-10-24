@@ -334,3 +334,27 @@ Visuals: native Android View hierarchy, dark Material dialog theme, midnight-nav
 The prior single scrolling screen and destination-search field have been replaced by sections. The Google Maps launch shortcut is retained without a search field. The application still uses the same MainActivity-bound BLE transport and therefore **is not guaranteed to remain connected after Android destroys the activity**; the UI change does not solve background-service persistence.
 
 **Deployment:** \`git pull\`, then \`docker compose run --rm android gradle --no-daemon assembleDebug\` and install the APK. Code has been source-inspected, **not Android-compiled or tested on a Fold8** by this assistant. Verify Home connection, Navigation listener and test turn, Garage notification permission and arm/disarm, Logs export/copy/clear and tab navigation after rebuilding. No ESP32 firmware rebuild required.
+
+
+## 2026-10-24 — persistent GC8 Bluetooth foreground service (source committed, device validation pending)
+
+**New owner-requested behavior:** GC8 Companion now offers **Start service** and **Stop service** on Home. This is a user-controlled Android \`connectedDevice\` foreground service, not a silent background worker.
+
+**Initial setup, once:**
+
+1. Install the APK update and launch GC8 Companion with the Waveshare turned on.
+2. On **Home**, tap **Start service**; approve Android **Nearby devices** (Bluetooth scan/connect) and **notification** permissions as prompted. An Android notification permission denial can still allow a background navigation bridge, but blocks garage notification posting until explicitly granted.
+3. On **Navigation**, enable notification-listener access to Google Maps using the existing Android settings action. Android requires the owner to grant this manually; it cannot be silently or automatically enabled.
+4. On **Garage**, confirm the notification trigger text matches Samsung Modes and Routines (owner chose \`Garage Trigger\`), and **enable the garage button once** while the actual Waveshare is connected (with the garage in view). Existing arming preferences/address trust are preserved across app restarts, but service startup does **not** override a deliberate **Disable garage button**. Keep normal garage safety features enabled and consult [GARAGE_SETUP.md](GARAGE_SETUP.md) for the Samsung and SmartThings ON/door-state/auto-OFF configuration.
+
+**Ordinary use:** After Start, the service holds the single BLE GATT client, handles Waveshare PWR notifications, and receives forwarded Maps navigation via the existing \`MapsNotificationListener\`. Closing the app's UI no longer closes BLE. A separate low-priority persistent notification **GC8 Companion running** has a **Stop service** action. The service retries BLE discovery in range using balanced scan bursts and reconnects after link loss, including when the Bluetooth adapter is temporarily switched off. It never directly calls Meross, SmartThings or the garage opener.
+
+**After reboot:** A \`BOOT_COMPLETED\` receiver attempts to restart the service **only when the user previously started it and did not stop it**. Explicit **Stop service** clears the stored enabled flag and closes the BLE connection, preventing boot auto-resume. Automatic restart is best effort: Android 12+ foreground-service background-launch rules and Samsung battery optimization can block or terminate it, and the user may have to reopen the app and tap Start. A force-stop also prevents boot receiver delivery until user relaunch.
+
+**Preserved ownership:** \`Gc8ConnectionService\` exclusively creates/owns/closes \`GaugeBleClient\`. \`MainActivity\` reads connection state and sends existing commands through the service's client, never creates or closes a second client. \`GaugeBleClient\` now accepts an application \`Context\`; missing permissions are reported, not requested by the background service. Its write priority, garage lockouts, user opt-in, notification text, write timeouts, and navigation HOLD/CLEAR logic are unchanged. The foreground service notification uses a different title/channel and does **not** contain the \`Garage Trigger\` keyword that Samsung watches.
+
+**Permissions:** Manifest declares \`FOREGROUND_SERVICE\`, \`FOREGROUND_SERVICE_CONNECTED_DEVICE\`, \`RECEIVE_BOOT_COMPLETED\`, in addition to the previously used Bluetooth and notification permissions. No location, Internet, SmartThings, or Meross permissions have been added. Android grants notifications/Bluetooth only through user interaction. **No code can promise 100% availability while Android/OEM restrictions, permissions, battery policy, or BLE radio state intervene.**
+
+**Testing checklist after building on the owner's machine:** Start; approve prompts; verify service notification and BLE connected state; navigate away/lock Fold8 and confirm Maps notifications still reach Waveshare; trigger the garage with actual door and SmartThings status verified; switch Waveshare off/on and observe reconnection; tap **Stop service** and confirm the BLE disconnects/no button events; start again; restart phone and verify best-effort boot return. Check DriveLog for \`BLE_STATUS\`, \`GARAGE_BUTTON\`, \`GARAGE_ROUTINE\` if necessary. **This commit has not been Android-compiled or tested on physical Fold8/Waveshare by the assistant.**
+
+**Build:** In Android repo: \`git pull\` then \`docker compose run --rm android gradle --no-daemon assembleDebug\`. No Waveshare firmware update needed.
