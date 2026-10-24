@@ -52,6 +52,7 @@ import androidx.core.view.WindowInsetsCompat
  */
 class MainActivity : Activity() {
     private val exportRequestCode = 7402
+    private val chooseBootAppRequestCode = 7403
     private val bg = Color.rgb(5, 12, 23)
     private val panel = Color.rgb(13, 29, 50)
     private val text = Color.rgb(240, 247, 255)
@@ -393,6 +394,23 @@ class MainActivity : Activity() {
         }, 0)
         put(page, device, 14)
 
+        val boot = card()
+        put(boot, heading("Lower BOOT button", "Choose an installed app to open", "mic"), 12)
+        put(boot, label("Selected: " + BootAppLauncher.chosenLabel(this), 15f, muted, true), 11)
+        put(boot, action("Choose an app") { pickBootApp() }, 9)
+        put(boot, action("Clear button assignment", false) {
+            BootAppLauncher.clear(this)
+            showTab(0)
+        }, 10)
+        put(boot, label(
+            "Short-press BOOT after the Waveshare is fully running. " +
+            "When GC8 Companion is visible, it can open the chosen app directly. " +
+            "With the phone locked or the app in the background, tap the GC8 notification to open it. " +
+            "Selecting Google Home opens that app; it cannot guarantee instant voice listening.",
+            12f, muted
+        ), 0)
+        put(page, boot, 14)
+
         val nav = card()
         put(nav, heading("Google Maps", "Turn instructions from phone notifications", "nav"), 12)
         put(nav, label(if (listenerAllowed()) "Notification access granted" else "Notification access not enabled",
@@ -624,6 +642,22 @@ class MainActivity : Activity() {
         ).show()
     }
 
+    private fun pickBootApp() {
+        // Ask Android to pick a MAIN/LAUNCHER activity, not a package name
+        // typed by the user. This avoids app hardcoding and does not launch
+        // the selected app during configuration.
+        try {
+            val launchable = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER)
+            val picker = Intent(Intent.ACTION_PICK_ACTIVITY).apply {
+                putExtra(Intent.EXTRA_INTENT, launchable)
+                putExtra(Intent.EXTRA_TITLE, "BOOT button: choose an app")
+            }
+            startActivityForResult(picker, chooseBootAppRequestCode)
+        } catch (e: Exception) {
+            Toast.makeText(this, "App picker unavailable on this phone.", Toast.LENGTH_LONG).show()
+        }
+    }
+
     private fun exportDiagnostics() {
         try {
             startActivityForResult(Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
@@ -639,7 +673,27 @@ class MainActivity : Activity() {
     @Deprecated("Android Activity result hook retained for the existing file export workflow")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != exportRequestCode || resultCode != RESULT_OK) return
+        if (resultCode != RESULT_OK) return
+        if (requestCode == chooseBootAppRequestCode) {
+            // The system PICK_ACTIVITY result is an Intent identifying the
+            // actual launcher component chosen by the owner.
+            val chosen = data?.component
+                ?: data?.resolveActivity(packageManager)
+            if (chosen == null) {
+                Toast.makeText(this, "No launchable app selected.", Toast.LENGTH_LONG).show()
+                return
+            }
+            val label = try {
+                packageManager.getActivityInfo(chosen, 0).loadLabel(packageManager).toString()
+            } catch (_: Exception) {
+                chosen.packageName
+            }
+            BootAppLauncher.save(this, chosen, label)
+            Toast.makeText(this, "BOOT assigned to " + label, Toast.LENGTH_SHORT).show()
+            if (currentTab == 0) showTab(0)
+            return
+        }
+        if (requestCode != exportRequestCode) return
         val uri = data?.data ?: return
         try {
             val file = DriveLog.export(this)
@@ -668,6 +722,7 @@ class MainActivity : Activity() {
 
     override fun onResume() {
         super.onResume()
+        BootAppLauncher.setActivityVisible(this)
         ContextCompat.registerReceiver(this, bridgeReceiver,
             IntentFilter(Gc8ConnectionService.ACTION_STATUS), ContextCompat.RECEIVER_NOT_EXPORTED)
         lastBleMessage = Gc8ConnectionService.latestStatus
@@ -675,6 +730,7 @@ class MainActivity : Activity() {
     }
 
     override fun onPause() {
+        BootAppLauncher.setActivityHidden(this)
         unregisterReceiver(bridgeReceiver)
         super.onPause()
     }
