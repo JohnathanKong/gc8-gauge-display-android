@@ -113,7 +113,7 @@ class Gc8ConnectionService : Service() {
             return START_NOT_STICKY
         }
         try {
-            if (Build.VERSION.SDK_INT >= 29) {
+            if (Build.VERSION.SDK_INT >= 34) {
                 startForeground(NOTIFICATION_ID, ongoingNotification(),
                     ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE)
             } else startForeground(NOTIFICATION_ID, ongoingNotification())
