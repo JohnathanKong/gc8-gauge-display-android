@@ -3,6 +3,12 @@ package io.toyboxracing.gc8companion
 import android.Manifest
 import android.app.Activity
 import android.app.AlertDialog
+import android.bluetooth.BluetoothAdapter
+import android.content.BroadcastReceiver
+import android.content.IntentFilter
+import android.os.Handler
+import android.os.Looper
+import androidx.core.content.ContextCompat
 import android.content.ActivityNotFoundException
 import android.content.ClipData
 import android.content.ClipboardManager
@@ -53,7 +59,17 @@ class MainActivity : Activity() {
     private val green = Color.rgb(66, 216, 156)
     private val border = Color.rgb(37, 76, 115)
 
-    private lateinit var ble: GaugeBleClient
+    // The foreground service exclusively owns the BLE client. The Activity is UI only.
+    private val ble: GaugeBleClient? get() = Gc8ConnectionService.instance?.client
+    private val garagePrefs by lazy { GarageRoutineTrigger(this) }
+    private var pendingServiceStart = false
+    private val bridgeReceiver = object : BroadcastReceiver() {
+        override fun onReceive(context: Context?, intent: Intent?) {
+            lastBleMessage = intent?.getStringExtra(Gc8ConnectionService.EXTRA_STATUS)
+                ?: Gc8ConnectionService.latestStatus
+            updateLiveStatuses()
+        }
+    }
     private lateinit var page: LinearLayout
     private lateinit var scroller: ScrollView
     private lateinit var titleText: TextView
@@ -148,10 +164,7 @@ class MainActivity : Activity() {
         @Suppress("DEPRECATION")
         window.decorView.systemUiVisibility = 0
 
-        ble = GaugeBleClient(this) { message ->
-            lastBleMessage = message
-            updateLiveStatuses()
-        }
+        lastBleMessage = Gc8ConnectionService.latestStatus
 
         val root = stack().apply { setBackgroundColor(bg) }
         val header = LinearLayout(this).apply {
@@ -274,16 +287,78 @@ class MainActivity : Activity() {
         put(page, label(value, 13f, muted).apply { setPadding(dp(4), dp(0), dp(4), dp(0)) }, 15)
     }
 
-    private fun isConnected(): Boolean = ble.connectedDisplayAddress() != null
+    private fun isConnected(): Boolean = ble?.connectedDisplayAddress() != null
+
+    private fun startBridge() {
+        if (!Gc8ConnectionService.hasBlePermission(this)) {
+            if (Build.VERSION.SDK_INT >= 31) {
+                pendingServiceStart = true
+                requestPermissions(
+                    arrayOf(Manifest.permission.BLUETOOTH_SCAN, Manifest.permission.BLUETOOTH_CONNECT),
+                    7301
+                )
+            }
+            return
+        }
+        if (Build.VERSION.SDK_INT >= 33 &&
+            checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+            pendingServiceStart = true
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7302)
+            return
+        }
+        launchBridgeNow()
+    }
+
+    private fun launchBridgeNow() {
+        pendingServiceStart = false
+        try {
+            Gc8ConnectionService.launch(this)
+            lastBleMessage = "Starting background connection…"
+            Handler(Looper.getMainLooper()).postDelayed({
+                if (!isFinishing && currentTab == 0) showTab(0)
+            }, 450L)
+        } catch (e: Exception) {
+            Toast.makeText(this, "Cannot start service: " + e.javaClass.simpleName,
+                Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun stopBridge() {
+        pendingServiceStart = false
+        if (Gc8ConnectionService.instance == null) return
+        startService(Intent(this, Gc8ConnectionService::class.java)
+            .setAction(Gc8ConnectionService.ACTION_STOP))
+        lastBleMessage = "Service stopping"
+        Handler(Looper.getMainLooper()).postDelayed({
+            if (!isFinishing && currentTab == 0) showTab(0)
+        }, 350L)
+    }
+
 
     private fun home() {
         hero("GC8  /  COMPANION", "Made for your drive", "Display  •  Google Maps  •  Garage")
+        val service = card()
+        put(service, heading("Background service", "Keeps BLE connected when this screen closes", "ble"), 12)
+        put(service, label(
+            if (Gc8ConnectionService.instance != null) "Running — " + Gc8ConnectionService.latestStatus
+            else "Stopped",
+            14f, if (Gc8ConnectionService.instance != null) green else muted, true
+        ), 12)
+        put(service, action("Start service") { startBridge() }, 9)
+        put(service, action("Stop service", false) { stopBridge() }, 10)
+        put(service, label("One-time permissions stay approved. Starting remembers your choice and attempts to resume after a phone restart; Stop turns automatic restart off.",
+            12f, muted), 0)
+        put(page, service, 14)
+
         val device = card()
         put(device, heading("Waveshare display", "Bluetooth Low Energy connection", "ble"), 13)
         bleStateText = label(if (isConnected()) "Connected to Waveshare" else lastBleMessage,
             15f, if (isConnected()) green else muted, true)
         put(device, bleStateText!!, 12)
-        put(device, action("Connect to Waveshare") { ble.connect() }, 0)
+        put(device, action("Connect to Waveshare") {
+            if (Gc8ConnectionService.instance == null) startBridge()
+            else ble?.connect()
+        }, 0)
         put(page, device, 14)
 
         val nav = card()
@@ -295,7 +370,7 @@ class MainActivity : Activity() {
 
         val garageCard = card()
         put(garageCard, heading("Garage bridge", "Samsung Modes and Routines integration", "garage"), 12)
-        put(garageCard, label(ble.garageBridgeStatus(), 14f, muted), 12)
+        put(garageCard, label(garageStatusLabel(), 14f, muted), 12)
         put(garageCard, action("Garage settings", false) { showTab(2) }, 0)
         put(page, garageCard, 13)
         note("GC8 Companion displays real connection and permission status. The garage notification is a request, not confirmation that the door moved.")
@@ -318,7 +393,8 @@ class MainActivity : Activity() {
             14f, muted), 12)
         put(instructions, action("Open Google Maps") { openMaps() }, 10)
         put(instructions, action("Send test navigation to Waveshare", false) {
-            ble.sendTestNavigation()
+            if (ble == null) Toast.makeText(this, "Start service first.", Toast.LENGTH_SHORT).show()
+            else ble?.sendTestNavigation()
         }, 0)
         put(page, instructions, 14)
 
@@ -335,7 +411,7 @@ class MainActivity : Activity() {
         hero("GARAGE  /  ROUTINE BRIDGE", "Garage setup", "Waveshare button  →  Samsung notification")
         val state = card()
         put(state, heading("Garage button", "Opt-in physical PWR trigger", "garage"), 12)
-        garageStateText = label(ble.garageBridgeStatus(), 15f, muted, true)
+        garageStateText = label(garageStatusLabel(), 15f, muted, true)
         put(state, garageStateText!!, 12)
         put(state, label("A short upper PWR press posts an Android notification. Samsung Modes and Routines must route that notification to your SmartThings virtual switch.",
             13f, muted), 0)
@@ -359,15 +435,15 @@ class MainActivity : Activity() {
             textSize = 16f
             background = shape(intArrayOf(Color.rgb(9, 28, 49), Color.rgb(6, 21, 38)), 12, border)
             setPadding(dp(14), dp(12), dp(14), dp(12))
-            setText(garageInputDraft ?: ble.garageNotificationTriggerText())
+            setText(garageInputDraft ?: garagePrefs.notificationTriggerText())
         }
         put(trigger, field, 6)
         put(trigger, label("This is notification text, not a SmartThings device picker. Disable the garage button before changing it.",
             12f, muted), 12)
         put(trigger, action("Save trigger text", false) {
-            val result = ble.setGarageNotificationTriggerText(field.text.toString())
+            val result = garagePrefs.setNotificationTriggerText(field.text.toString())
             if (result.sent) {
-                garageInputDraft = ble.garageNotificationTriggerText()
+                garageInputDraft = garagePrefs.notificationTriggerText()
                 field.setText(garageInputDraft)
             }
             Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
@@ -383,14 +459,15 @@ class MainActivity : Activity() {
                 .setMessage("Only enable after checking the Samsung routine. A short upper PWR tap may ACTUATE the garage door. Keep the door and entrance in view during the first live test. BLE address matching is not cryptographic pairing.")
                 .setNegativeButton("Cancel", null)
                 .setPositiveButton("Enable") { _, _ ->
-                    val result = ble.armGarageRoutine()
+                    val result = ble?.armGarageRoutine()
+                        ?: "Start service and connect the Waveshare first."
                     Toast.makeText(this, result, Toast.LENGTH_LONG).show()
                     garageInputDraft = field.text.toString()
                     showTab(2)
                 }.show()
         }, 9)
         put(enable, action("Disable garage button", false) {
-            val result = ble.disarmGarageRoutine()
+            val result = garagePrefs.disarm().message
             Toast.makeText(this, result, Toast.LENGTH_SHORT).show()
             garageInputDraft = field.text.toString()
             showTab(2)
@@ -441,6 +518,13 @@ class MainActivity : Activity() {
         put(tools, action("Ask voice assistant", false) { askVoiceAssistant() }, 0)
         put(page, tools, 12)
         note("Diagnostic records stay on this phone until you explicitly export or copy them.")
+    }
+
+    private fun garageStatusLabel(): String {
+        val permission = if (garagePrefs.canPost()) "notifications allowed" else "notifications blocked"
+        return "Garage button: " +
+            if (garagePrefs.isArmed()) "ENABLED ($permission)"
+            else "DISABLED ($permission)"
     }
 
     private fun listenerAllowed(): Boolean {
@@ -529,26 +613,45 @@ class MainActivity : Activity() {
             text = if (isConnected()) "Connected to Waveshare" else lastBleMessage
             setTextColor(if (isConnected()) green else muted)
         }
-        garageStateText?.text = ble.garageBridgeStatus()
+        garageStateText?.text = garageStatusLabel()
     }
 
     override fun onResume() {
         super.onResume()
-        if (::page.isInitialized) {
-            // Redraw status on return from Android Settings, not fake cached states.
-            showTab(currentTab)
-        }
+        ContextCompat.registerReceiver(this, bridgeReceiver,
+            IntentFilter(Gc8ConnectionService.ACTION_STATUS), ContextCompat.RECEIVER_NOT_EXPORTED)
+        lastBleMessage = Gc8ConnectionService.latestStatus
+        if (::page.isInitialized) showTab(currentTab)
+    }
+
+    override fun onPause() {
+        unregisterReceiver(bridgeReceiver)
+        super.onPause()
     }
 
     override fun onRequestPermissionsResult(
         requestCode: Int, permissions: Array<out String>, grantResults: IntArray
     ) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        if (requestCode == 7302 && ::page.isInitialized) showTab(currentTab)
+        if (pendingServiceStart && requestCode == 7301) {
+            if (Gc8ConnectionService.hasBlePermission(this)) startBridge()
+            else {
+                pendingServiceStart = false
+                Toast.makeText(this, "Nearby devices permission is needed to connect.",
+                    Toast.LENGTH_LONG).show()
+            }
+        } else if (pendingServiceStart && requestCode == 7302) {
+            // Android may deny notification permission. The service can still
+            // forward navigation, but the garage routine will remain blocked.
+            launchBridgeNow()
+        }
+        if ((requestCode == 7301 || requestCode == 7302) && ::page.isInitialized) {
+            showTab(currentTab)
+        }
     }
 
     override fun onDestroy() {
-        if (::ble.isInitialized) ble.close()
+        // No BLE close here: foreground service owns the connection.
         super.onDestroy()
     }
 
