@@ -1,6 +1,10 @@
 package io.toyboxracing.gc8companion
 
 import android.app.Activity
+import android.app.AlertDialog
+import android.Manifest
+import android.os.Build
+import android.content.pm.PackageManager
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -21,6 +25,7 @@ class MainActivity : Activity() {
     private val exportRequestCode = 7402
     private lateinit var output: TextView
     private lateinit var ble: GaugeBleClient
+    private lateinit var garageStatus: TextView
     private val updates = object : android.content.BroadcastReceiver() {
         override fun onReceive(context: Context?, intent: Intent?) { refresh() }
     }
@@ -89,6 +94,68 @@ class MainActivity : Activity() {
             setOnClickListener { ble.connect() }
         })
         root.addView(bleStatus)
+
+        root.addView(TextView(this).apply {
+            text = "GARAGE — Samsung Modes and Routines"
+            textSize = 19f
+            setPadding(0, 24, 0, 8)
+        })
+        garageStatus = TextView(this).apply {
+            text = ble.garageBridgeStatus()
+            textSize = 15f
+        }
+        root.addView(garageStatus)
+        root.addView(TextView(this).apply {
+            text = "A tap of the upper GC8 power button posts a " +
+                "GC8_GARAGE_TRIGGER notification. Set a Galaxy routine: " +
+                "IF notification received from GC8 Companion containing " +
+                "GC8_GARAGE_TRIGGER; THEN operate GC8 Garage Trigger " +
+                "in SmartThings. Test the virtual switch WITHOUT the live " +
+                "garage routines enabled first."
+            textSize = 14f
+        })
+        root.addView(Button(this).apply {
+            text = "Allow GC8 notifications"
+            setOnClickListener {
+                if (Build.VERSION.SDK_INT >= 33 &&
+                    checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) !=
+                        PackageManager.PERMISSION_GRANTED) {
+                    requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 7302)
+                } else {
+                    val intent = Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS).apply {
+                        putExtra(Settings.EXTRA_APP_PACKAGE, packageName)
+                    }
+                    startActivity(intent)
+                }
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Enable garage button for connected Waveshare"
+            setOnClickListener {
+                AlertDialog.Builder(this@MainActivity)
+                    .setTitle("Enable garage-door button?")
+                    .setMessage("Only enable after checking the Samsung routine. " +
+                        "When enabled, a short upper PWR tap posts a notification " +
+                        "that may ACTUATE your garage door. Keep the door and " +
+                        "entrance in view during your first live test. " +
+                        "BLE address matching is not cryptographic pairing.")
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Enable") { _, _ ->
+                        val message = ble.armGarageRoutine()
+                        Toast.makeText(this@MainActivity, message, Toast.LENGTH_LONG).show()
+                        garageStatus.text = ble.garageBridgeStatus()
+                    }
+                    .show()
+            }
+        })
+        root.addView(Button(this).apply {
+            text = "Disable garage button"
+            setOnClickListener {
+                val message = ble.disarmGarageRoutine()
+                garageStatus.text = ble.garageBridgeStatus()
+                Toast.makeText(this@MainActivity, message, Toast.LENGTH_SHORT).show()
+            }
+        })
         root.addView(Button(this).apply {
             text = "Send test navigation to Waveshare"
             setOnClickListener { ble.sendTestNavigation() }
@@ -166,6 +233,18 @@ class MainActivity : Activity() {
     override fun onResume() {
         super.onResume()
         refresh()
+        if (::garageStatus.isInitialized && ::ble.isInitialized) {
+            garageStatus.text = ble.garageBridgeStatus()
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int, permissions: Array<out String>, grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == 7302 && ::garageStatus.isInitialized && ::ble.isInitialized) {
+            garageStatus.text = ble.garageBridgeStatus()
+        }
     }
 
     private fun refresh() {
