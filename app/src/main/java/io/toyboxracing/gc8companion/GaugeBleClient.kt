@@ -34,6 +34,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     private var gatt: BluetoothGatt? = null
     @Volatile private var writable: BluetoothGattCharacteristic? = null
     private var garageEvents: BluetoothGattCharacteristic? = null
+    private var linkInitialized = false
     private var lastGaragePressAt = 0L
     @Volatile private var writePending = false
     private var latestQueued: String? = null
@@ -246,6 +247,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 latestQueued = null
                 writable = null
                 garageEvents = null
+                linkInitialized = false
                 writePending = false
                 lastSent = null
                 status("BLE write timed out; resetting connection.")
@@ -287,7 +289,8 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     }
 
     private fun afterGarageSubscription() {
-        if (writable == null) return
+        if (writable == null || linkInitialized) return
+        linkInitialized = true
         // Preserve all existing START/CLEAR + clock behavior.
         if (MapsNotificationListener.isRouteActive()) sendStartNavigation()
         else sendClearNavigation()
@@ -397,6 +400,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             val service = g.getService(SERVICE_UUID)
             writable = service?.getCharacteristic(WRITE_UUID)
             garageEvents = service?.getCharacteristic(GARAGE_EVENT_UUID)
+            linkInitialized = false
             status(if (writable != null) "GC8 BLE connected; write characteristic ready." else "Connected but navigation characteristic missing.")
             if (writable == null) return
             val events = garageEvents
@@ -428,6 +432,15 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 }
                 // GATT descriptor write callback starts route and clock writes.
                 // These operations must not overlap a descriptor write.
+                // Failsafe for phones that never issue the CCCD callback: do
+                // not strand navigation while waiting for garage events.
+                handler.postDelayed({
+                    if (g === gatt && !linkInitialized) {
+                        DriveLog.record(activity, "GARAGE_SUBSCRIBE",
+                            "No descriptor callback; resuming navigation bridge")
+                        afterGarageSubscription()
+                    }
+                }, 2500L)
             } catch (_: SecurityException) {
                 status("Nearby devices permission missing for garage button.")
                 afterGarageSubscription()
