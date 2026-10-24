@@ -7,3 +7,5 @@ local.properties
 *.aab
 *.jks
 *.keystore
+# Generated from committed branding asset during Gradle build
+app/src/main/res/drawable-nodpi/gc8_companion_bitmap.webp
