@@ -226,7 +226,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
         routineBridge.setNotificationTriggerText(value)
 
     fun sendTestNavigation() {
-        sendPayload("GC8|1|RIGHT|250 m|Main St|Apex Motoring|DEMO:14.7", true)
+        sendPayload("GC8|1|RIGHT|250 m|TEST_ROAD|TEST_DESTINATION|DEMO:14.7", true)
     }
 
     private fun sendPayload(message: String, isTest: Boolean) {
