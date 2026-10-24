@@ -196,6 +196,10 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 if (result != BluetoothStatusCodes.SUCCESS) {
                     writePending = false
                     status("BLE write could not start (code $result).")
+                    if (message == "GC8|1|CLEAR") {
+                        // Disconnect also invalidates route display on ESP32.
+                        try { connection.disconnect() } catch (_: SecurityException) {}
+                    }
                 } else {
                     armWriteTimeout(connection, message)
                     if (isTest) status("Sending test navigation + DEMO AFR 14.7…")
@@ -210,6 +214,9 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 if (!started) {
                     writePending = false
                     status("BLE write could not start.")
+                    if (message == "GC8|1|CLEAR") {
+                        try { connection.disconnect() } catch (_: SecurityException) {}
+                    }
                 } else {
                     armWriteTimeout(connection, message)
                     if (isTest) status("Sending test navigation…")
@@ -254,6 +261,14 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 DriveLog.record(activity, "BLE_WRITE_RESULT",
                     "status=$statusCode message=$finished")
                 if (statusCode == BluetoothGatt.GATT_SUCCESS) lastSent = finished
+                if (finished == "GC8|1|CLEAR" &&
+                    statusCode != BluetoothGatt.GATT_SUCCESS) {
+                    DriveLog.record(activity, "BLE_CLEAR_RECOVERY",
+                        "CLEAR failed ($statusCode); disconnect to reset device guidance")
+                    latestQueued = null
+                    try { g.disconnect() } catch (_: SecurityException) {}
+                    return@post
+                }
                 if (characteristic.uuid == WRITE_UUID) {
                     val next = latestQueued
                     latestQueued = null
@@ -308,7 +323,9 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 // state FIRST. CLEAR is more important than the clock.
                 if (MapsNotificationListener.isRouteActive()) sendStartNavigation()
                 else sendClearNavigation()
-                sendClockTime()
+                // Clock follows the small, high-priority route-state packet,
+                // rather than being dropped while its GATT write is pending.
+                handler.postDelayed({ sendClockTime() }, 350L)
             }
         }
     }
