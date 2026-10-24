@@ -17,6 +17,13 @@ class MapsNotificationListener : NotificationListenerService() {
     private var guidanceHeld = false
     private var forwardedManeuverForRoute = false
     private var lastWatchdogLogAt = 0L
+    // Match only an explicit destination-side announcement from Maps.
+    // Never infer left/right from the final turn or the destination address.
+    private val destinationSidePattern = Regex(
+        """(?i)\bdestination\s+(?:(?:is|will\s+be)\s+)?(?:on\s+)?(?:the\s+)?(left|right)\b"""
+    )
+    private val exitParkingPattern =
+        Regex("""(?i)\bexit (?:the )?parking (?:lot|garage)\b""")
 
     private fun isNavigation(sbn: StatusBarNotification): Boolean {
         val title = sbn.notification.extras
@@ -26,7 +33,8 @@ class MapsNotificationListener : NotificationListenerService() {
         return title.startsWith("Starting navigation", ignoreCase = true) ||
             title.startsWith("Rerouting", ignoreCase = true) ||
             Regex("""(?i)\b(turn|head|continue|keep|bear|merge|exit)\b""")
-                .containsMatchIn(title)
+                .containsMatchIn(title) ||
+            (navigationActive && destinationSidePattern.containsMatchIn(title))
     }
 
     private fun beginRoute() {
@@ -187,11 +195,53 @@ class MapsNotificationListener : NotificationListenerService() {
             title, field("android.ongoingActivityNoti.nowbarSecondaryInfo"),
             field("android.ongoingActivityNoti.secondaryInfo"), bigText, text
         ).filter { it.isNotBlank() }
+
+        // Destination side is a separate *explicit* Maps statement, not a
+        // turn or an arrival. Works even without distance or a street name.
+        val side = instructions.firstNotNullOfOrNull { candidate ->
+            destinationSidePattern.find(candidate)?.groupValues?.getOrNull(1)
+        }
+        if (side != null && navigationActive) {
+            val heading = "DESTINATION ${side.uppercase()}"
+            val key = "INFO|$heading"
+            MapsCaptureStore.setBridgeStatus(this, heading)
+            if (key != lastSent) {
+                lastSent = key
+                zeroDistanceSince = 0L
+                guidanceHeld = false
+                DriveLog.record(this, "DESTINATION_SIDE", "Maps explicitly reported $side")
+                GaugeBleClient.forwardMapsInfo(heading, "FOLLOW GOOGLE MAPS")
+            }
+            return
+        }
+
         val instruction = instructions.firstOrNull { candidate ->
             val s = candidate.lowercase()
-            listOf("turn", "head", "continue", "keep", "bear").any { s.contains(it) }
+            listOf("turn", "head", "continue", "keep", "bear", "exit").any { s.contains(it) }
         }.orEmpty()
         val lower = instruction.lowercase()
+
+        // "Exit the parking lot toward Courtyard Ln" has no left/right bearing
+        // and frequently reports 0 m. Show the actual instruction as text
+        // instead of manufacturing a straight-ahead arrow or losing guidance.
+        if (exitParkingPattern.containsMatchIn(instruction) &&
+            !Regex("""(?i)\b(left|right)\b""").containsMatchIn(instruction)) {
+            val toward = lower.indexOf(" toward ")
+            val hint = if (toward >= 0)
+                "TOWARD " + instruction.substring(toward + 8)
+                    .trim().trimEnd('.', ',', ';').uppercase().take(31)
+                else "FOLLOW GOOGLE MAPS"
+            val key = "INFO|EXIT PARKING LOT|$hint"
+            MapsCaptureStore.setBridgeStatus(this, "Exit parking lot: $hint")
+            if (key != lastSent) {
+                lastSent = key
+                zeroDistanceSince = 0L
+                guidanceHeld = false
+                DriveLog.record(this, "PARKING_GUIDANCE", "Exit parking lot; $hint")
+                GaugeBleClient.forwardMapsInfo("EXIT PARKING LOT", hint)
+            }
+            return
+        }
         val maneuver = when {
             lower.contains("left") -> "LEFT"
             lower.contains("right") -> "RIGHT"
@@ -232,25 +282,47 @@ class MapsNotificationListener : NotificationListenerService() {
                 val index = lower.indexOf(token)
                 if (index >= 0) instruction.substring(index + token.length).trim() else null
             }?.trimEnd('.', ',', ';')
+        // The turn direction is real even when Maps has no named road
+        // (parking lots, driveways and private access lanes).
+        val roadLabel = if (street.isNullOrBlank()) when (maneuver) {
+            "LEFT" -> "TURN LEFT"
+            "RIGHT" -> "TURN RIGHT"
+            "STRAIGHT" -> "CONTINUE"
+            else -> ""
+        } else street
         val reason = when {
             maneuver == null -> "Waiting: unsupported or missing maneuver"
             distance == null -> "Waiting: no positive distance in notification"
-            street.isNullOrBlank() -> "Waiting: street not found in instruction"
-            else -> "Parsed: $maneuver | $distance | $street"
+            else -> "Parsed: $maneuver | $distance | $roadLabel"
         }
         MapsCaptureStore.setBridgeStatus(this, reason)
         DriveLog.record(this, "PARSE", reason)
-        if (maneuver != null && distance != null && !street.isNullOrBlank()) {
+        if (maneuver != null && distance != null) {
             // Only a previously validated instruction can become stale.
             forwardedManeuverForRoute = true
             // Real fresh maneuver supersedes a near-zero provisional hold.
             zeroDistanceSince = 0L
             guidanceHeld = false
-            val fingerprint = "$maneuver|$distance|$street"
+            val fingerprint = "$maneuver|$distance|$roadLabel"
             if (fingerprint != lastSent) {
                 lastSent = fingerprint
                 DriveLog.record(this, "FORWARD", fingerprint)
-                GaugeBleClient.forwardMapsNavigation(maneuver, distance, street)
+                GaugeBleClient.forwardMapsNavigation(maneuver, distance, roadLabel)
+            }
+        } else if (maneuver != null && distance == null && zeroDistance &&
+                   instruction.isNotBlank()) {
+            // Zero metres means the current step is imminent, NOT arrival.
+            // No fake distance: show Maps' actual named/unnamed direction.
+            val label = when (maneuver) {
+                "LEFT" -> "TURN LEFT"
+                "RIGHT" -> "TURN RIGHT"
+                else -> "CONTINUE"
+            }
+            val key = "INFO|$label"
+            if (key != lastSent) {
+                lastSent = key
+                DriveLog.record(this, "ZERO_DISTANCE_GUIDANCE", label)
+                GaugeBleClient.forwardMapsInfo(label, "FOLLOW GOOGLE MAPS")
             }
         }
         Log.i("GC8Maps", "Maps navigation notification received: $reason")
