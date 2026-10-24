@@ -122,7 +122,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
         try {
             scanner.startScan(
                 listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(SERVICE_UUID)).build()),
-                ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(), scanCallback
+                ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build(), scanCallback
             )
             handler.postDelayed({
                 if (scanning) {
@@ -131,7 +131,11 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                     retry(20000L)
                 }
             }, 12000)
-        } catch (_: SecurityException) { scanning = false; status("Bluetooth permission missing."); retry(30000L) }
+        } catch (e: Exception) {
+            scanning = false
+            status("Bluetooth scan unavailable: " + e.javaClass.simpleName)
+            retry(30000L)
+        }
     }
 
     private val scanCallback = object : ScanCallback() {
@@ -142,7 +146,18 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             status("Found GC8 service; connecting…")
             try {
                 gatt?.close()
-                gatt = result.device.connectGatt(activity, false, gattCallback)
+                val connection = result.device.connectGatt(activity, false, gattCallback)
+                gatt = connection
+                // A vendor BLE stack may never report connection completion.
+                handler.postDelayed({
+                    if (autoReconnect && connecting && connection != null && gatt === connection) {
+                        connecting = false
+                        try { connection.disconnect(); connection.close() } catch (_: SecurityException) {}
+                        gatt = null
+                        status("Waveshare connection timed out; retrying.")
+                        retry()
+                    }
+                }, 15000L)
             } catch (e: Exception) {
                 connecting = false
                 status("Connect failed: ${e.javaClass.simpleName}")
@@ -465,7 +480,11 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             garageEvents = service?.getCharacteristic(GARAGE_EVENT_UUID)
             linkInitialized = false
             status(if (writable != null) "GC8 BLE connected; write characteristic ready." else "Connected but navigation characteristic missing.")
-            if (writable == null) return
+            if (writable == null) {
+                status("Missing GC8 BLE service; reconnecting.")
+                try { g.disconnect() } catch (_: SecurityException) {}
+                return
+            }
             val events = garageEvents
             val descriptor = events?.getDescriptor(CCCD_UUID)
             if (events == null || descriptor == null) {
