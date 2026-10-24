@@ -25,6 +25,9 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
         fun forwardMapsNavigation(maneuver: String, distance: String, street: String) {
             activeClient?.sendLiveNavigation(maneuver, distance, street)
         }
+        fun forwardMapsInfo(title: String, hint: String) {
+            activeClient?.sendNavigationInfo(title, hint)
+        }
     }
     private val handler = Handler(Looper.getMainLooper())
     init { activeClient = this }
@@ -54,7 +57,8 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
         packet?.startsWith("GC8|1|GARAGE|RESULT|") == true -> 4
         packet?.startsWith("GC8|1|LEFT|") == true ||
         packet?.startsWith("GC8|1|RIGHT|") == true ||
-        packet?.startsWith("GC8|1|STRAIGHT|") == true -> 3
+        packet?.startsWith("GC8|1|STRAIGHT|") == true ||
+        packet?.startsWith("GC8|1|INFO|") == true -> 3
         packet == "GC8|1|HOLD" -> 2
         packet == "GC8|1|START" -> 1
         else -> 0
@@ -238,6 +242,20 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             // Sixth field remains empty for compatibility with older firmware;
             // no location/address or selected-place data is transmitted.
             sendPayload("GC8|1|$maneuver|$dist|$road|", false)
+        }
+    }
+
+    // Text-only guidance from Google Maps when it provides no bearing/distance,
+    // e.g. "Exit the parking lot" or "Destination on the right".
+    // This is NOT confirmation that the driver has arrived.
+    private fun sendNavigationInfo(title: String, hint: String) {
+        handler.post {
+            fun safe(s: String, max: Int): String =
+                s.replace("|", " ").filter { it.code in 32..126 }.trim().take(max)
+            val heading = safe(title, 31)
+            if (heading.isEmpty()) return@post
+            val detail = safe(hint, 38)
+            sendPayload("GC8|1|INFO|$heading|$detail", false)
         }
     }
 
@@ -493,7 +511,6 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             connecting = false
             if (statusCode == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 retryCount = 0
-                tryBondedFirst = true
                 handler.removeCallbacks(retryTask)
                 status("Connected; discovering services…")
                 try {
@@ -535,6 +552,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                 try { g.disconnect() } catch (_: SecurityException) {}
                 return
             }
+            tryBondedFirst = true
             // Pin identity only AFTER verifying the private GC8 GATT service.
             try {
                 val addr = g.device.address
