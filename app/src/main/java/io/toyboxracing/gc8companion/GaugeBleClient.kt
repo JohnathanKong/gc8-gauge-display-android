@@ -19,6 +19,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         val WRITE_UUID: UUID = UUID.fromString("a8e31c40-6b8f-4b67-a4f0-4a0b75000002")
         @Volatile private var activeClient: GaugeBleClient? = null
         fun clearNavigation() { activeClient?.sendClearNavigation() }
+        fun pauseNavigation() { activeClient?.sendHoldNavigation() }
         fun startNavigation() { activeClient?.sendStartNavigation() }
         fun forwardMapsNavigation(maneuver: String, distance: String, street: String) {
             activeClient?.sendLiveNavigation(maneuver, distance, street)
@@ -34,6 +35,18 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     private var latestQueued: String? = null
     private var lastSent: String? = null
     private var lastWriteMessage: String? = null
+    // One GATT write at a time. CLEAR outranks live guidance; clock sync
+    // must never evict a pending route-ending command.
+    private var writeSerial = 0
+    private fun priority(packet: String?): Int = when {
+        packet == "GC8|1|CLEAR" -> 4
+        packet?.startsWith("GC8|1|LEFT|") == true ||
+        packet?.startsWith("GC8|1|RIGHT|") == true ||
+        packet?.startsWith("GC8|1|STRAIGHT|") == true -> 3
+        packet == "GC8|1|HOLD" -> 2
+        packet == "GC8|1|START" -> 1
+        else -> 0
+    }
     private var autoReconnect = false
     private var retryCount = 0
     private val clockSync = object : Runnable {
@@ -117,6 +130,10 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         handler.post { sendPayload("GC8|1|CLEAR", false) }
     }
 
+    fun sendHoldNavigation() {
+        handler.post { sendPayload("GC8|1|HOLD", false) }
+    }
+
     // Maps notification START is independent of a positive turn distance.
     fun sendStartNavigation() {
         handler.post { sendPayload("GC8|1|START", false) }
@@ -147,8 +164,16 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             return
         }
         if (writePending) {
-            DriveLog.record(activity, "BLE_QUEUE", message)
-            latestQueued = message
+            // A one-slot queue must never replace CLEAR with a TIME packet.
+            // For equal-priority turns, keep the newest distance.
+            val queuedPriority = priority(latestQueued)
+            if (latestQueued == null || priority(message) >= queuedPriority) {
+                latestQueued = message
+                DriveLog.record(activity, "BLE_QUEUE", message)
+            } else {
+                DriveLog.record(activity, "BLE_QUEUE_SKIPPED",
+                    "$message (pending higher-priority $latestQueued)")
+            }
             return
         }
         if (!isTest && message == lastSent && message != "GC8|1|START") {
@@ -171,7 +196,10 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 if (result != BluetoothStatusCodes.SUCCESS) {
                     writePending = false
                     status("BLE write could not start (code $result).")
-                } else if (isTest) status("Sending test navigation + DEMO AFR 14.7…")
+                } else {
+                    armWriteTimeout(connection, message)
+                    if (isTest) status("Sending test navigation + DEMO AFR 14.7…")
+                }
             } else {
                 @Suppress("DEPRECATION")
                 characteristic.writeType = BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT
@@ -182,7 +210,10 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 if (!started) {
                     writePending = false
                     status("BLE write could not start.")
-                } else status("Sending test navigation…")
+                } else {
+                    armWriteTimeout(connection, message)
+                    if (isTest) status("Sending test navigation…")
+                }
             }
         } catch (_: SecurityException) {
             writePending = false
@@ -190,28 +221,56 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         }
     }
 
+    private fun armWriteTimeout(connection: BluetoothGatt, message: String) {
+        // Normally GATT write callbacks arrive in ~50ms. A missing callback
+        // left CLEAR behind the last TIME packet during the owner's drive.
+        // Resetting the BLE connection also clears the navigation state on
+        // the ESP32 peripheral (its disconnect handler), avoiding a frozen
+        // last-turn display when the GATT write queue deadlocks.
+        val serial = ++writeSerial
+        handler.postDelayed({
+            if (writePending && serial == writeSerial &&
+                gatt === connection && lastWriteMessage == message) {
+                DriveLog.record(activity, "BLE_WRITE_TIMEOUT", message)
+                latestQueued = null
+                writable = null
+                writePending = false
+                lastSent = null
+                status("BLE write timed out; resetting connection.")
+                try { connection.disconnect() } catch (_: SecurityException) {}
+            }
+        }, 2500L)
+    }
+
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onCharacteristicWrite(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic, statusCode: Int) {
-            writePending = false
-            DriveLog.record(activity, "BLE_WRITE_RESULT", "status=$statusCode message=$lastWriteMessage")
-            if (statusCode == BluetoothGatt.GATT_SUCCESS) lastSent = lastWriteMessage
-            if (characteristic.uuid == WRITE_UUID) {
-                val next = latestQueued
-                latestQueued = null
-                if (next != null) handler.post { sendPayload(next, false) }
-                val kind = when {
-                    lastWriteMessage == "GC8|1|CLEAR" -> "Navigation cleared"
-                    lastWriteMessage == "GC8|1|START" -> "Navigation started"
-                    lastWriteMessage?.startsWith("GC8|1|TIME|") == true -> "Phone time"
-                    lastWriteMessage?.contains("|DEMO:") == true -> "Demo navigation"
-                    else -> "Live navigation"
-                }
-                // Routine minute-by-minute clock sync should not replace
-                // useful navigation/BLE status text on the Companion screen.
-                if (kind != "Phone time" || statusCode != BluetoothGatt.GATT_SUCCESS) {
-                    status(if (statusCode == BluetoothGatt.GATT_SUCCESS)
-                        "$kind accepted by GC8 BLE."
-                        else "$kind write failed (status $statusCode).")
+            // Serialize queue transitions on the same main handler that sends
+            // packets. Old callbacks after a forced disconnect are ignored.
+            handler.post {
+                if (g !== gatt || !writePending) return@post
+                writePending = false
+                ++writeSerial // invalidates this write's timeout
+                val finished = lastWriteMessage
+                DriveLog.record(activity, "BLE_WRITE_RESULT",
+                    "status=$statusCode message=$finished")
+                if (statusCode == BluetoothGatt.GATT_SUCCESS) lastSent = finished
+                if (characteristic.uuid == WRITE_UUID) {
+                    val next = latestQueued
+                    latestQueued = null
+                    if (next != null) sendPayload(next, false)
+                    val kind = when {
+                        finished == "GC8|1|CLEAR" -> "Navigation cleared"
+                        finished == "GC8|1|HOLD" -> "Guidance paused"
+                        finished == "GC8|1|START" -> "Navigation started"
+                        finished?.startsWith("GC8|1|TIME|") == true -> "Phone time"
+                        finished?.contains("|DEMO:") == true -> "Demo navigation"
+                        else -> "Live navigation"
+                    }
+                    if (kind != "Phone time" || statusCode != BluetoothGatt.GATT_SUCCESS) {
+                        status(if (statusCode == BluetoothGatt.GATT_SUCCESS)
+                            "$kind accepted by GC8 BLE."
+                            else "$kind write failed (status $statusCode).")
+                    }
                 }
             }
         }
@@ -225,6 +284,9 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             } else {
                 writable = null
                 writePending = false
+                ++writeSerial
+                latestQueued = null
+                lastWriteMessage = null
                 lastSent = null
                 status("Disconnected (status $statusCode)")
                 try { g.close() } catch (_: SecurityException) {}
@@ -242,10 +304,11 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
             writable = g.getService(SERVICE_UUID)?.getCharacteristic(WRITE_UUID)
             status(if (writable != null) "GC8 BLE connected; write characteristic ready." else "Connected but navigation characteristic missing.")
             if (writable != null) {
-                // Clock is available even when Google Maps is not running.
-                // START, when applicable, follows this short GATT write.
-                sendClockTime()
+                // On reconnect explicitly synchronize the current route
+                // state FIRST. CLEAR is more important than the clock.
                 if (MapsNotificationListener.isRouteActive()) sendStartNavigation()
+                else sendClearNavigation()
+                sendClockTime()
             }
         }
     }
