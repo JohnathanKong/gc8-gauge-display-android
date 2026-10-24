@@ -1,5 +1,12 @@
 # GC8 Digital Companion — Android
 
+## Working garage-door button — setup guide (2026-10-24)
+
+**Owner-reported working:** Upper Waveshare PWR → BLE → GC8 Companion notification → Samsung **Modes and Routines** notification bridge → SmartThings virtual switch **Garage Trigger** → mutually exclusive **Garage Open / Garage Close** SmartThings routines → virtual switch returns OFF. The earlier end-to-end failure was caused by SmartThings reporting an **incorrect garage-door state**; the owner corrected it and reported successful operation.
+
+**[READ THE COMPLETE GARAGE SETUP, ROUTINES, TRIGGERS, AND TROUBLESHOOTING GUIDE](GARAGE_SETUP.md)** before changing this integration. It specifies all IF/THEN conditions, the important distinction between Samsung phone routines vs SmartThings automation, the notification-text field vs the virtual switch, live-status verification and safety/security limitations. Historical dated notes below remain as development history and are not current configuration instructions.
+
+
 Android companion for the [GC8 Waveshare gauge firmware](https://github.com/JohnathanKong/gc8-gauge-display). **Primary objective: get real Google Maps turn guidance to the Waveshare display.** Native Kotlin app, initially validating Google's navigation notification data before adding Bluetooth.
 
 ## Read first
