@@ -30,6 +30,12 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     init { activeClient = this }
     private val routineBridge = GarageRoutineTrigger(activity)
     private val manager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
+    private val blePrefs = activity.getSharedPreferences("gc8_ble", Context.MODE_PRIVATE)
+    private val knownAddressKey = "verified_gatt_device_address"
+    // Reuse the previously verified, bonded GC8 identity when Android's HID
+    // host holds the link and the peripheral stops advertising the GC8 UUID.
+    private var tryBondedFirst = true
+    private var bondedAttempt = false
     private var scanning = false
     private var gatt: BluetoothGatt? = null
     @Volatile private var writable: BluetoothGattCharacteristic? = null
@@ -112,6 +118,25 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             retry(30000L)
             return
         }
+        if (tryBondedFirst) {
+            tryBondedFirst = false
+            val saved = blePrefs.getString(knownAddressKey, null)
+            if (saved != null && BluetoothAdapter.checkBluetoothAddress(saved)) {
+                try {
+                    val device = adapter.getRemoteDevice(saved)
+                    if (device.bondState == BluetoothDevice.BOND_BONDED) {
+                        status("Reconnecting through paired GC8 device…")
+                        if (startGattConnection(device, true)) return
+                    }
+                } catch (e: Exception) {
+                    DriveLog.record(activity, "BLE_BONDED_FALLBACK", e.javaClass.simpleName)
+                }
+            }
+        }
+        startScan(adapter)
+    }
+
+    private fun startScan(adapter: BluetoothAdapter) {
         val scanner = adapter.bluetoothLeScanner ?: run {
             status("BLE scanner unavailable.")
             retry(30000L)
@@ -120,8 +145,14 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
         scanning = true
         status("Scanning for GC8 display…")
         try {
+            val filters = mutableListOf(
+                ScanFilter.Builder().setServiceUuid(ParcelUuid(SERVICE_UUID)).build()
+            )
+            val saved = blePrefs.getString(knownAddressKey, null)
+            if (saved != null && BluetoothAdapter.checkBluetoothAddress(saved))
+                filters.add(ScanFilter.Builder().setDeviceAddress(saved).build())
             scanner.startScan(
-                listOf(ScanFilter.Builder().setServiceUuid(ParcelUuid(SERVICE_UUID)).build()),
+                filters,
                 ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build(), scanCallback
             )
             handler.postDelayed({
@@ -138,37 +169,45 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
         }
     }
 
+    private fun startGattConnection(device: BluetoothDevice, useAutoConnect: Boolean): Boolean {
+        connecting = true
+        bondedAttempt = useAutoConnect
+        try {
+            gatt?.close()
+            val connection = device.connectGatt(
+                activity, useAutoConnect, gattCallback, BluetoothDevice.TRANSPORT_LE
+            )
+            gatt = connection
+            if (connection == null) {
+                connecting = false
+                return false
+            }
+            handler.postDelayed({
+                if (autoReconnect && connecting && gatt === connection) {
+                    connecting = false
+                    try { connection.disconnect(); connection.close() } catch (_: SecurityException) {}
+                    gatt = null
+                    status(if (useAutoConnect) "Paired connection timed out; scanning…"
+                           else "Waveshare connection timed out; retrying.")
+                    retry(if (useAutoConnect) 1000L else 5000L)
+                }
+            }, if (useAutoConnect) 12000L else 15000L)
+            return true
+        } catch (e: Exception) {
+            connecting = false
+            gatt = null
+            status("Connect failed: ${e.javaClass.simpleName}")
+            return false
+        }
+    }
+
     private val scanCallback = object : ScanCallback() {
         override fun onScanResult(callbackType: Int, result: ScanResult) {
             if (!scanning) return
             stopScan()
-            connecting = true
-            status("Found GC8 service; connecting…")
-            try {
-                gatt?.close()
-                val connection = result.device.connectGatt(activity, false, gattCallback)
-                gatt = connection
-                if (connection == null) {
-                    connecting = false
-                    status("Bluetooth GATT initialization failed; retrying.")
-                    retry()
-                    return
-                }
-                // A vendor BLE stack may never report connection completion.
-                handler.postDelayed({
-                    if (autoReconnect && connecting && connection != null && gatt === connection) {
-                        connecting = false
-                        try { connection.disconnect(); connection.close() } catch (_: SecurityException) {}
-                        gatt = null
-                        status("Waveshare connection timed out; retrying.")
-                        retry()
-                    }
-                }, 15000L)
-            } catch (e: Exception) {
-                connecting = false
-                status("Connect failed: ${e.javaClass.simpleName}")
-                retry()
-            }
+            bondedAttempt = false
+            status("Found GC8 service/device; connecting…")
+            if (!startGattConnection(result.device, false)) retry()
         }
         override fun onScanFailed(errorCode: Int) {
             scanning = false
@@ -454,6 +493,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             connecting = false
             if (statusCode == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
                 retryCount = 0
+                tryBondedFirst = true
                 handler.removeCallbacks(retryTask)
                 status("Connected; discovering services…")
                 try {
@@ -467,11 +507,15 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                 lastWriteMessage = null
                 lastSent = null
                 status("Disconnected (status $statusCode)")
+                val hadBondedAttempt = bondedAttempt
+                bondedAttempt = false
+                if (hadBondedAttempt)
+                    DriveLog.record(activity, "BLE_BONDED_FALLBACK", "Paired GATT failed; scanning")
                 try { g.close() } catch (_: SecurityException) {}
                 if (g === gatt) gatt = null
                 if (autoReconnect) {
                     retryCount = (retryCount + 1).coerceAtMost(6)
-                    retry(if (retryCount < 2) 5000L else 20000L)
+                    retry(if (hadBondedAttempt) 1000L else if (retryCount < 2) 5000L else 20000L)
                 }
             }
         }
@@ -491,6 +535,12 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                 try { g.disconnect() } catch (_: SecurityException) {}
                 return
             }
+            // Pin identity only AFTER verifying the private GC8 GATT service.
+            try {
+                val addr = g.device.address
+                if (BluetoothAdapter.checkBluetoothAddress(addr))
+                    blePrefs.edit().putString(knownAddressKey, addr).apply()
+            } catch (_: SecurityException) {}
             val events = garageEvents
             val descriptor = events?.getDescriptor(CCCD_UUID)
             if (events == null || descriptor == null) {
