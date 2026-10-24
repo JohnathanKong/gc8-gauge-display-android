@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vector fallback inspired by the owner's approved glossy two-slab icon.
+     For the exact bitmap, use the generated density-specific launcher assets. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp" android:height="108dp"
+    android:viewportWidth="108" android:viewportHeight="108">
+    <path android:pathData="M21,3 L87,3 Q105,3 105,21 L105,87 Q105,105 87,105 L21,105 Q3,105 3,87 L3,21 Q3,3 21,3Z" android:fillColor="#0A1424" />
+    <path android:pathData="M21,5 L87,5 Q103,5 103,21 L103,87 Q103,103 87,103 L21,103 Q5,103 5,87 L5,21 Q5,5 21,5Z" android:strokeWidth="1.6" android:strokeColor="#188BE8" android:fillColor="#111D30"/>
+    <path android:pathData="M23,10 L85,10 Q98,10 98,23 L98,85 Q98,98 85,98 L23,98 Q10,98 10,85 L10,23 Q10,10 23,10Z" android:fillColor="#08111F"/>
+    <path android:pathData="M24,66 L65,25 Q68,22 72,22 L82,22 Q87,22 83,27 L46,70 Q44,73 40,73 L23,73 Q19,73 24,66Z" android:fillColor="#0987F5" android:strokeColor="#46DFFF" android:strokeWidth="0.7"/>
+    <path android:pathData="M44,79 L70,52 Q73,49 77,49 L87,49 Q92,49 88,54 L63,83 Q60,86 56,86 L45,86 Q41,86 44,79Z" android:fillColor="#26364D" android:strokeColor="#91A5C0" android:strokeWidth="0.7"/>
+</vector>
