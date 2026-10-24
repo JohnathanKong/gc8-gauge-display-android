@@ -7,8 +7,6 @@ import android.bluetooth.le.*
 import android.content.Context
 import android.content.pm.PackageManager
 import android.os.*
-import android.content.Intent
-import android.content.IntentFilter
 import java.util.UUID
 import java.util.Calendar
 import java.util.Locale
@@ -58,15 +56,9 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                 now.get(Calendar.HOUR_OF_DAY),
                 now.get(Calendar.MINUTE),
                 now.get(Calendar.SECOND), mode)
-            // Read the PHONE battery only. Sticky ACTION_BATTERY_CHANGED
-            // requires no additional manifest permission or background scan.
-            val battery = activity.registerReceiver(null,
-                IntentFilter(Intent.ACTION_BATTERY_CHANGED))
-            val level = battery?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
-            val scale = battery?.getIntExtra(BatteryManager.EXTRA_SCALE, -1) ?: -1
-            val percent = if (level >= 0 && scale > 0)
-                (level * 100 / scale).coerceIn(0, 100) else null
-            sendPayload(if (percent != null) "$base|$percent" else base, false)
+            // The top-right icon is now the Waveshare's AXP2101 battery,
+            // measured on the device. The Android app sends clock only.
+            sendPayload(base, false)
         }
     }
 
