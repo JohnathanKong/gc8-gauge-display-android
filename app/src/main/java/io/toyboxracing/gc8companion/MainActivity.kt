@@ -251,41 +251,25 @@ class MainActivity : Activity() {
 
     private fun buildTabs() {
         navbar.removeAllViews()
-        val names = arrayOf("Home", "Navigation", "Garage", "Logs", "Talk")
-        val symbols = arrayOf("home", "nav", "garage", "logs", "mic")
+        val names = arrayOf("Home", "Navigation", "Garage", "Logs")
+        val symbols = arrayOf("home", "nav", "garage", "logs")
         for (i in names.indices) {
             val active = i == currentTab
-            val isVoice = i == 4
             val tile = stack().apply {
                 gravity = Gravity.CENTER
                 setPadding(dp(1), dp(6), dp(1), dp(5))
-                background = when {
-                    isVoice -> shape(
-                        intArrayOf(Color.rgb(8, 115, 214), Color.rgb(7, 58, 115)),
-                        16, Color.rgb(61, 167, 252)
-                    )
-                    active -> shape(
-                        intArrayOf(Color.rgb(12, 79, 151), Color.rgb(8, 35, 78)),
-                        16, Color.rgb(22, 106, 214)
-                    )
-                    else -> null
-                }
+                background = if (active) shape(
+                    intArrayOf(Color.rgb(12, 79, 151), Color.rgb(8, 35, 78)),
+                    16, Color.rgb(22, 106, 214)
+                ) else null
                 isClickable = true
                 isFocusable = true
-                contentDescription = if (isVoice) "Talk to Google voice assistant"
-                    else names[i] + " tab"
-                setOnClickListener {
-                    if (isVoice) launchGoogleVoice()
-                    else if (currentTab != i) showTab(i)
-                }
+                contentDescription = names[i] + " tab"
+                setOnClickListener { if (currentTab != i) showTab(i) }
             }
-            tile.addView(Glyph(this, symbols[i],
-                if (isVoice) Color.WHITE else if (active) cyan else muted),
+            tile.addView(Glyph(this, symbols[i], if (active) cyan else muted),
                 LinearLayout.LayoutParams(dp(25), dp(25)))
-            val textView = label(
-                names[i], 11f, if (isVoice) Color.WHITE else if (active) cyan else muted,
-                active || isVoice
-            ).apply {
+            val textView = label(names[i], 11f, if (active) cyan else muted, active).apply {
                 gravity = Gravity.CENTER
             }
             tile.addView(textView)
@@ -395,7 +379,7 @@ class MainActivity : Activity() {
         put(page, device, 14)
 
         val boot = card()
-        put(boot, heading("Lower BOOT button", "Choose an installed app to open", "mic"), 12)
+        put(boot, heading("Lower BOOT button", "Choose an installed app to open", "app"), 12)
         put(boot, label("Selected: " + BootAppLauncher.chosenLabel(this), 15f, muted, true), 11)
         put(boot, action("Choose an app") { pickBootApp() }, 9)
         put(boot, action("Test selected app", false) {
@@ -570,8 +554,7 @@ class MainActivity : Activity() {
         put(tools, heading("Other existing tools", "Phone settings and shortcuts", "settings"), 12)
         put(tools, action("Notification access settings", false) {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
-        }, 10)
-        put(tools, action("Talk to Google", false) { launchGoogleVoice() }, 0)
+        }, 0)
         put(page, tools, 12)
         note("Diagnostic records stay on this phone until you explicitly export or copy them.")
     }
@@ -618,34 +601,6 @@ class MainActivity : Activity() {
         } catch (_: SecurityException) {
             Toast.makeText(this, "Unable to launch Google Maps.", Toast.LENGTH_LONG).show()
         }
-    }
-
-    /**
-     * Attempts Google's voice entry directly rather than allowing Samsung's
-     * generic ACTION_VOICE_COMMAND to open Bixby. The Google app determines
-     * whether its microphone opens immediately; no third-party guarantee.
-     */
-    private fun launchGoogleVoice() {
-        val googleApp = "com.google.android.googlequicksearchbox"
-        val actions = listOf(
-            Intent(Intent.ACTION_VOICE_COMMAND).setPackage(googleApp),
-            Intent(Intent.ACTION_ASSIST).setPackage(googleApp)
-        )
-        for (request in actions) {
-            try {
-                startActivity(request)
-                return
-            } catch (_: ActivityNotFoundException) {
-                // Some versions of Google's app do not expose this intent.
-            } catch (_: SecurityException) {
-                // Android/Google may block this entry point.
-            }
-        }
-        Toast.makeText(
-            this,
-            "Google voice unavailable. Set Google/Gemini as your phone assistant.",
-            Toast.LENGTH_LONG
-        ).show()
     }
 
     private fun pickBootApp() {
@@ -888,13 +843,11 @@ class MainActivity : Activity() {
                     line(canvas, 8f, 13f, 16f, 13f)
                     line(canvas, 8f, 17f, 14f, 17f)
                 }
-                "mic" -> {
-                    canvas.drawRoundRect(9f, 3f, 15f, 15f, 3f, 3f, paint)
-                    path.moveTo(5f, 11f)
-                    path.cubicTo(5f, 21f, 19f, 21f, 19f, 11f)
-                    canvas.drawPath(path, paint)
-                    line(canvas, 12f, 19f, 12f, 22f)
-                    line(canvas, 9f, 22f, 15f, 22f)
+                "app" -> {
+                    canvas.drawRoundRect(3f, 3f, 10.5f, 10.5f, 1.8f, 1.8f, paint)
+                    canvas.drawRoundRect(13.5f, 3f, 21f, 10.5f, 1.8f, 1.8f, paint)
+                    canvas.drawRoundRect(3f, 13.5f, 10.5f, 21f, 1.8f, 1.8f, paint)
+                    canvas.drawRoundRect(13.5f, 13.5f, 21f, 21f, 1.8f, 1.8f, paint)
                 }
                 "ble" -> {
                     line(canvas, 12f, 2f, 12f, 22f)
