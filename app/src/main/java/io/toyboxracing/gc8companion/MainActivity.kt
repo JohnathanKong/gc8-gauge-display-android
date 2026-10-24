@@ -398,6 +398,12 @@ class MainActivity : Activity() {
         put(boot, heading("Lower BOOT button", "Choose an installed app to open", "mic"), 12)
         put(boot, label("Selected: " + BootAppLauncher.chosenLabel(this), 15f, muted, true), 11)
         put(boot, action("Choose an app") { pickBootApp() }, 9)
+        put(boot, action("Test selected app", false) {
+            val result = BootAppLauncher.onPhysicalPress(this)
+            if (!result.handled) {
+                Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
+            }
+        }, 9)
         put(boot, action("Clear button assignment", false) {
             BootAppLauncher.clear(this)
             showTab(0)
