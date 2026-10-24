@@ -107,7 +107,24 @@ class MapsNotificationListener : NotificationListenerService() {
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification?) {
-        if (sbn?.packageName == MAPS_PACKAGE) capture(sbn)
+        if (sbn?.packageName != MAPS_PACKAGE) return
+        // Clear immediately if Maps *explicitly* says arrival, without
+        // relying on its notification being removed. Don't mistake the
+        // ETA phrase "Arrive 9:27 p.m." for arrival confirmation.
+        val title = sbn.notification.extras
+            .getCharSequence(Notification.EXTRA_TITLE)?.toString().orEmpty().trim()
+        val text = sbn.notification.extras
+            .getCharSequence(Notification.EXTRA_TEXT)?.toString().orEmpty().trim()
+        val explicitArrival = Regex(
+            """(?i)^(?:you(?:'ve| have) arrived(?: at .*)?|arrived at (?:your )?destination.*|destination reached.*|you have reached your destination.*)$"""
+        )
+        if (navigationActive && (explicitArrival.matches(title) ||
+                                  explicitArrival.matches(text))) {
+            DriveLog.record(this, "ARRIVAL_CONFIRMED", "Explicit Google Maps arrival notification")
+            endRoute("Google Maps reported arrival")
+        } else {
+            capture(sbn)
+        }
     }
 
     override fun onNotificationRemoved(sbn: StatusBarNotification?) {
