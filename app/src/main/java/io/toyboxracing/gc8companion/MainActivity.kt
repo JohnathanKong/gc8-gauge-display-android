@@ -40,6 +40,8 @@ import android.widget.ScrollView
 import android.widget.TextView
 import android.widget.Toast
 import androidx.core.view.WindowCompat
+import androidx.core.view.ViewCompat
+import androidx.core.view.WindowInsetsCompat
 
 /**
  * Native, dependency-light presentation of the EXISTING companion functions.
@@ -158,15 +160,28 @@ class MainActivity : Activity() {
         getSharedPreferences("gc8_navigation", MODE_PRIVATE)
             .edit().remove("destination").apply()
 
-        WindowCompat.setDecorFitsSystemWindows(window, true)
-        window.statusBarColor = bg
-        window.navigationBarColor = bg
-        @Suppress("DEPRECATION")
-        window.decorView.systemUiVisibility = 0
+        // Target SDK 35+ draws edge-to-edge. The root manages safe insets.
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        window.statusBarColor = Color.TRANSPARENT
+        window.navigationBarColor = Color.TRANSPARENT
+        WindowCompat.getInsetsController(window, window.decorView).apply {
+            isAppearanceLightStatusBars = false
+            isAppearanceLightNavigationBars = false
+        }
 
         lastBleMessage = Gc8ConnectionService.latestStatus
 
         val root = stack().apply { setBackgroundColor(bg) }
+        // Keep top controls below the clock/camera cutout and bottom tabs above
+        // the phone's navigation buttons. Also protect inputs from the keyboard.
+        ViewCompat.setOnApplyWindowInsetsListener(root) { view, insets ->
+            val safe = insets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            val keyboard = insets.getInsets(WindowInsetsCompat.Type.ime())
+            view.setPadding(safe.left, safe.top, safe.right, maxOf(safe.bottom, keyboard.bottom))
+            insets
+        }
         val header = LinearLayout(this).apply {
             gravity = Gravity.CENTER_VERTICAL
             setPadding(dp(18), dp(15), dp(18), dp(11))
@@ -205,6 +220,7 @@ class MainActivity : Activity() {
         }
         root.addView(navbar, LinearLayout.LayoutParams(-1, dp(72)))
         setContentView(root)
+        ViewCompat.requestApplyInsets(root)
         currentTab = savedInstanceState?.getInt("tab") ?: 0
         showTab(currentTab)
     }
