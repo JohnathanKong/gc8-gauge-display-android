@@ -29,6 +29,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     }
     private val handler = Handler(Looper.getMainLooper())
     init { activeClient = this }
+    private val routineBridge = GarageRoutineTrigger(activity)
     private val manager = activity.getSystemService(Context.BLUETOOTH_SERVICE) as BluetoothManager
     private var scanning = false
     private var gatt: BluetoothGatt? = null
@@ -158,6 +159,25 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         }
     }
 
+    fun connectedDisplayAddress(): String? =
+        if (writable == null) null
+        else try { gatt?.device?.address } catch (_: SecurityException) { null }
+
+    fun garageBridgeStatus(): String {
+        val permission = if (routineBridge.canPost()) "notifications allowed"
+                         else "notifications blocked"
+        val armed = if (routineBridge.isArmed()) "ENABLED" else "DISABLED"
+        return "Garage button: $armed ($permission)"
+    }
+
+    fun armGarageRoutine(): String {
+        val address = connectedDisplayAddress()
+            ?: return "Connect the Waveshare first, then enable garage button."
+        return routineBridge.arm(address).message
+    }
+
+    fun disarmGarageRoutine(): String = routineBridge.disarm().message
+
     fun sendTestNavigation() {
         sendPayload("GC8|1|RIGHT|250 m|Main St|Apex Motoring|DEMO:14.7", true)
     }
@@ -268,13 +288,20 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
         lastGaragePressAt = now
         DriveLog.record(activity, "GARAGE_BUTTON", "Upper Waveshare PWR tapped")
 
-        // Deliberately DO NOT operate a physical garage door with an
-        // unconfigured/unverified vendor integration. Meross exposes
-        // open/close actions, not a publicly documented blind toggle API.
-        // Once the user's Meross setup is known, this is the ONLY place
-        // where a verified local/secure action will be wired.
-        status("Top garage button detected; Meross control not configured.")
-        sendPayload("GC8|1|GARAGE|RESULT|NOT_READY", false)
+        val bleAddress = try { gatt?.device?.address } catch (_: SecurityException) { null }
+        val result = routineBridge.request(bleAddress)
+        DriveLog.record(activity, "GARAGE_ROUTINE",
+            if (result.sent) "Notification posted" else "Blocked: ${result.message}")
+        status(result.message)
+        // A successful RESULT means Android POSTED the keyword notification.
+        // It does not prove Modes & Routines ran, SmartThings acted, or that
+        // the door reached a new position.
+        sendPayload(
+            if (result.sent) "GC8|1|GARAGE|RESULT|SENT"
+            else if (!routineBridge.isArmed()) "GC8|1|GARAGE|RESULT|NOT_READY"
+            else "GC8|1|GARAGE|RESULT|FAILED",
+            false
+        )
     }
 
     private fun handleGarageEvent(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic,
@@ -326,6 +353,7 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                         finished == "GC8|1|CLEAR" -> "Navigation cleared"
                         finished == "GC8|1|HOLD" -> "Guidance paused"
                         finished == "GC8|1|START" -> "Navigation started"
+                        finished?.startsWith("GC8|1|GARAGE|RESULT|") == true -> "Garage signal feedback"
                         finished?.startsWith("GC8|1|TIME|") == true -> "Phone time"
                         finished?.contains("|DEMO:") == true -> "Demo navigation"
                         else -> "Live navigation"
