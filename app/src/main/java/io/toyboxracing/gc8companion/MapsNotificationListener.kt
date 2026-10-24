@@ -10,6 +10,12 @@ class MapsNotificationListener : NotificationListenerService() {
     private var lastSent: String? = null
     @Volatile private var navigationActive = false
     private var lastNavigationKey: String? = null
+    // Google Maps often reaches 0 m at both intermediate turns and the
+    // destination. This is NOT proof of arrival. A prolonged silence after
+    // 0 m means only that the old arrow is no longer trustworthy.
+    private var zeroDistanceSince = 0L
+    private var guidanceHeld = false
+    private var lastWatchdogLogAt = 0L
 
     private fun isNavigation(sbn: StatusBarNotification): Boolean {
         val title = sbn.notification.extras
@@ -25,6 +31,8 @@ class MapsNotificationListener : NotificationListenerService() {
     private fun beginRoute() {
         navigationActive = true
         lastSent = null
+        zeroDistanceSince = 0L
+        guidanceHeld = false
         DriveLog.record(this, "NAV_STARTED", "Google Maps navigation notification detected")
         GaugeBleClient.startNavigation()
     }
@@ -33,6 +41,8 @@ class MapsNotificationListener : NotificationListenerService() {
         navigationActive = false
         lastNavigationKey = null
         lastSent = null
+        zeroDistanceSince = 0L
+        guidanceHeld = false
         DriveLog.record(this, "NAV_ENDED", reason)
         GaugeBleClient.clearNavigation()
     }
@@ -52,20 +62,35 @@ class MapsNotificationListener : NotificationListenerService() {
     }
     private val watchdogTask = object : Runnable {
         override fun run() {
-            if (lastNotificationAt > 0L) {
-                val age = android.os.SystemClock.elapsedRealtime() - lastNotificationAt
-                if (age >= 30000L) {
-                    DriveLog.record(this@MapsNotificationListener, "WATCHDOG", "No Maps update for ${age / 1000}s")
-                    MapsCaptureStore.setBridgeStatus(this@MapsNotificationListener, "STALE: no Maps event for ${age / 1000}s")
+            val now = android.os.SystemClock.elapsedRealtime()
+            // Wait 15s after a legitimate Google Maps 0 m event before
+            // retiring its previous arrow. Intermediate turns are normally
+            // replaced by a new positive-distance step within seconds.
+            // Neither HOLD nor timeout ever claims the driver has arrived.
+            if (navigationActive && zeroDistanceSince > 0L &&
+                !guidanceHeld && now - zeroDistanceSince >= 15000L) {
+                guidanceHeld = true
+                DriveLog.record(this@MapsNotificationListener, "GUIDANCE_HOLD",
+                    "Maps reported 0 m, then no positive maneuver for ${(now - zeroDistanceSince) / 1000}s")
+                GaugeBleClient.pauseNavigation()
+                MapsCaptureStore.setBridgeStatus(this@MapsNotificationListener,
+                    "Waiting for Maps: previous turn expired")
+            }
+            if (navigationActive && lastNotificationAt > 0L) {
+                val age = now - lastNotificationAt
+                if (age >= 30000L && now - lastWatchdogLogAt >= 30000L) {
+                    lastWatchdogLogAt = now
+                    DriveLog.record(this@MapsNotificationListener, "WATCHDOG",
+                        "No Maps update for ${age / 1000}s")
                 }
             }
-            watchdog.postDelayed(this, 30000L)
+            watchdog.postDelayed(this, 5000L)
         }
     }
     override fun onCreate() {
         super.onCreate()
         instance = this
-        watchdog.postDelayed(watchdogTask, 30000L)
+        watchdog.postDelayed(watchdogTask, 5000L)
         DriveLog.record(this, "LISTENER", "created")
     }
     override fun onDestroy() {
@@ -167,6 +192,20 @@ class MapsNotificationListener : NotificationListenerService() {
                 if (number != null && number > 0) it.value else null
             }
         }
+        // Only explicit zero DISTANCE fields can trigger a stale-turn
+        // hold. Never infer arrival from a route ETA, road name, or silence.
+        val zeroDistanceRegex =
+            Regex("""(?i)(?<![a-z0-9])0(?:[.,]0+)?\s*(km|mi|ft|m)\b""")
+        val zeroDistance = listOf(
+            field("android.ongoingActivityNoti.primaryInfo"),
+            field("android.ongoingActivityNoti.nowbarPrimaryInfo"),
+            field("android.ongoingActivityNoti.chipExpandedText"),
+            title
+        ).any { zeroDistanceRegex.containsMatchIn(it) }
+        if (navigationActive && zeroDistance && zeroDistanceSince == 0L) {
+            zeroDistanceSince = android.os.SystemClock.elapsedRealtime()
+            DriveLog.record(this, "NEAR_ZERO", "0 m notification; awaiting next turn or route end")
+        }
         val street = listOf(" onto ", " toward ", " on ", " to ")
             .firstNotNullOfOrNull { token ->
                 val index = lower.indexOf(token)
@@ -181,6 +220,9 @@ class MapsNotificationListener : NotificationListenerService() {
         MapsCaptureStore.setBridgeStatus(this, reason)
         DriveLog.record(this, "PARSE", reason)
         if (maneuver != null && distance != null && !street.isNullOrBlank()) {
+            // Real fresh maneuver supersedes a near-zero provisional hold.
+            zeroDistanceSince = 0L
+            guidanceHeld = false
             val fingerprint = "$maneuver|$distance|$street"
             if (fingerprint != lastSent) {
                 lastSent = fingerprint
