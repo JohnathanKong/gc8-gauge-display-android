@@ -379,24 +379,39 @@ class MainActivity : Activity() {
         put(page, device, 14)
 
         val boot = card()
-        put(boot, heading("Lower BOOT button", "Choose an installed app to open", "app"), 12)
-        put(boot, label("Selected: " + BootAppLauncher.chosenLabel(this), 15f, muted, true), 11)
-        put(boot, action("Choose an app") { pickBootApp() }, 9)
-        put(boot, action("Test selected app", false) {
+        put(boot, heading("Lower BOOT button", "Choose its Android action", "app"), 12)
+        put(boot, label("Selected: " + BootAppLauncher.chosenLabel(this),
+            15f, if (BootAppLauncher.isAssistantMode(this)) green else muted, true), 11)
+        put(boot, action("Use default assistant") {
+            BootAppLauncher.useDefaultAssistant(this)
+            showTab(0)
+        }, 9)
+        put(boot, action("Change phone's default assistant", false) {
+            try {
+                startActivity(Intent(Settings.ACTION_MANAGE_DEFAULT_APPS_SETTINGS))
+            } catch (_: Exception) {
+                startActivity(Intent(Settings.ACTION_SETTINGS))
+            }
+        }, 9)
+        put(boot, action("Choose a different app", false) { pickBootApp() }, 9)
+        put(boot, action("Test BOOT action", false) {
             val result = BootAppLauncher.onPhysicalPress(this)
             if (!result.handled) {
                 Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
             }
         }, 9)
-        put(boot, action("Clear button assignment", false) {
+        put(boot, action("Disable BOOT shortcut", false) {
             BootAppLauncher.clear(this)
             showTab(0)
         }, 10)
         put(boot, label(
-            "Short-press BOOT after the Waveshare is fully running. " +
-            "When GC8 Companion is visible, it can open the chosen app directly. " +
-            "With the phone locked or the app in the background, tap the GC8 notification to open it. " +
-            "Selecting Google Home opens that app; it cannot guarantee instant voice listening.",
+            "Default assistant follows your Fold8 setting (Settings → Apps → " +
+            "Choose default apps → Digital assistant app). BOOT tries a " +
+            "voice-first request when Companion is open. Google, Gemini or " +
+            "another selected assistant controls whether the microphone starts. " +
+            "When the phone is locked or Companion is in the background, " +
+            "tap the GC8 notification to open the assistant. " +
+            "Upper PWR garage control is unchanged.",
             12f, muted
         ), 0)
         put(page, boot, 14)
