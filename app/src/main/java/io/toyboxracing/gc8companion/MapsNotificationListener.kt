@@ -15,6 +15,7 @@ class MapsNotificationListener : NotificationListenerService() {
     // 0 m means only that the old arrow is no longer trustworthy.
     private var zeroDistanceSince = 0L
     private var guidanceHeld = false
+    private var forwardedManeuverForRoute = false
     private var lastWatchdogLogAt = 0L
 
     private fun isNavigation(sbn: StatusBarNotification): Boolean {
@@ -33,6 +34,7 @@ class MapsNotificationListener : NotificationListenerService() {
         lastSent = null
         zeroDistanceSince = 0L
         guidanceHeld = false
+        forwardedManeuverForRoute = false
         DriveLog.record(this, "NAV_STARTED", "Google Maps navigation notification detected")
         GaugeBleClient.startNavigation()
     }
@@ -43,6 +45,7 @@ class MapsNotificationListener : NotificationListenerService() {
         lastSent = null
         zeroDistanceSince = 0L
         guidanceHeld = false
+        forwardedManeuverForRoute = false
         DriveLog.record(this, "NAV_ENDED", reason)
         GaugeBleClient.clearNavigation()
     }
@@ -219,7 +222,8 @@ class MapsNotificationListener : NotificationListenerService() {
             field("android.ongoingActivityNoti.chipExpandedText"),
             title
         ).any { zeroDistanceRegex.containsMatchIn(it) }
-        if (navigationActive && zeroDistance && zeroDistanceSince == 0L) {
+        if (navigationActive && forwardedManeuverForRoute &&
+            zeroDistance && zeroDistanceSince == 0L) {
             zeroDistanceSince = android.os.SystemClock.elapsedRealtime()
             DriveLog.record(this, "NEAR_ZERO", "0 m notification; awaiting next turn or route end")
         }
@@ -237,6 +241,8 @@ class MapsNotificationListener : NotificationListenerService() {
         MapsCaptureStore.setBridgeStatus(this, reason)
         DriveLog.record(this, "PARSE", reason)
         if (maneuver != null && distance != null && !street.isNullOrBlank()) {
+            // Only a previously validated instruction can become stale.
+            forwardedManeuverForRoute = true
             // Real fresh maneuver supersedes a near-zero provisional hold.
             zeroDistanceSince = 0L
             guidanceHeld = false
