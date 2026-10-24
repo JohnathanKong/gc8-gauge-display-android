@@ -22,3 +22,20 @@ android {
 dependencies {
     implementation("androidx.core:core:1.15.0")
 }
+
+
+// Exact approved launcher artwork is committed as a base64-encoded WebP so
+// GitHub source updates remain self-contained. Build automatically materializes
+// the binary asset; no manual icon installation step is required.
+val generateGc8LauncherIcon = tasks.register("generateGc8LauncherIcon") {
+    val source = layout.projectDirectory.file("branding/gc8_companion_icon.webp.base64")
+    val output = layout.projectDirectory.file("src/main/res/drawable-nodpi/gc8_companion_bitmap.webp")
+    inputs.file(source)
+    outputs.file(output)
+    doLast {
+        val destination = output.asFile
+        destination.parentFile.mkdirs()
+        destination.writeBytes(java.util.Base64.getMimeDecoder().decode(source.asFile.readText().trim()))
+    }
+}
+tasks.named("preBuild") { dependsOn(generateGc8LauncherIcon) }
