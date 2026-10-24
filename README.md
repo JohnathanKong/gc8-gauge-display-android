@@ -327,7 +327,7 @@ Based on the owner's approved *GC8 Companion* dark-blue app mockup, \`MainActivi
 | **Home** | Waveshare BLE connect action, live connection summary, shortcuts to navigation and garage configuration |
 | **Navigation** | Google Maps notification-listener permission, launch Google Maps (no destination search), existing test-turn transmission, latest captured notification |
 | **Garage** | Android notification-posting permission, editable notification trigger text, existing arm/disable actions and their safety confirmation |
-| **Logs** | Existing drive-event export, clear, debug copy, captured-data refresh, notification access settings and voice-assistant shortcut |
+| **Logs** | Existing drive-event export, clear, debug copy, captured-data refresh, and notification access settings |
 
 Visuals: native Android View hierarchy, dark Material dialog theme, midnight-navy backgrounds, cobalt/cyan buttons, rounded outlined cards, custom minimal line icons, the committed GC8 logo, and **decorative procedurally drawn night-road landscape headers**. No third-party libraries, network backgrounds, new data sources, vehicle telemetry, direct garage status/open-close commands, search, or additional app permissions. The illustration is decorative and **not a map or sensor display**. All status copy is grounded in current BLE connection and notification permissions; the existing garage status remains arming/notification status **not proof the garage moved**.
 
@@ -360,12 +360,11 @@ The prior single scrolling screen and destination-search field have been replace
 **Build:** In Android repo: \`git pull\` then \`docker compose run --rm android gradle --no-daemon assembleDebug\`. No Waveshare firmware update needed.
 
 
-### 2026-10-24 — System-bar safe layout and Google Talk action
+### 2026-10-24 — System-bar safe layout
 
 - GC8 Companion explicitly handles Android system-bar, display-cutout and keyboard insets in its native root view. This prevents the clock/status icons covering the app header and keeps the bottom menu above Samsung's system navigation controls (including three-button mode). The implementation is adaptive rather than a hardcoded bottom margin.
-- The bottom navigation now has four existing pages (**Home**, **Navigation**, **Garage**, **Logs**) and a fifth **Talk** action. Talk makes a user-initiated attempt to invoke the Google app's voice interface, first via a Google-package-scoped voice command and then a Google-package-scoped Assist intent. It intentionally does not invoke Samsung Bixby or replace Home's service controls. The pre-existing voice shortcut under Logs calls the same function.
-- **Platform limit:** Google/Gemini controls microphone activation. An Android third-party app cannot guarantee that Google's assistant starts listening instantly on every version. The Talk action does not itself operate Google Home devices, does not introduce RECORD_AUDIO permission, and does not send speech or garage commands from GC8 Companion. If the Google app does not expose either voice entry point, the app displays an explanatory message instead.
-- Rebuild with `git pull` then `docker compose run --rm android gradle --no-daemon assembleDebug`. Source committed; needs APK compilation and verification on the actual Fold8. Test with Samsung button navigation, both screens/fold modes and the Google voice assistant configuration installed on the phone.
+- The bottom navigation contains **Home**, **Navigation**, **Garage**, and **Logs**. There is no Google voice action in the Android navigation or Logs; app launching is configured only through the **Lower BOOT button** selector on Home.
+- Rebuild with `git pull` then `docker compose run --rm android gradle --no-daemon assembleDebug`. Source committed; needs APK compilation and verification on the actual Fold8, including Samsung system navigation bars and both display modes.
 
 
 ### 2026-10-24 — configurable lower BOOT button app shortcut (both repos)
@@ -379,7 +378,7 @@ The prior single scrolling screen and destination-search field have been replace
 4. If GC8 Companion is visibly open, the chosen Android launcher activity is requested immediately. If it is in the background or the phone is locked, **Android blocks unrestricted background activity starts even for foreground services**. Companion posts a separate **BOOT button app shortcuts** notification instead; tap the notification on the phone to launch the chosen app. This is intentionally **not** an automatic unlock or background-launch bypass.
 5. App assignment survives UI/service restarts and phone reboot (until cleared or app data removed). The service must be active and BLE subscribed to receive presses; if disconnected the Waveshare reports the phone is offline. Android notifications must be allowed for the background-tap path.
 
-**Voice/smart home:** Choosing **Google Home** opens the Google Home app, **not** a guaranteed open microphone. Some Google Assistant/Gemini versions may not expose a public one-tap listening entry point to third-party apps. The separate app-screen **Talk** control is independent. Android package restrictions and OEM settings can change the result; test the actual Fold8 unlocked first, then with it locked.
+**Voice/smart home:** Choosing **Google Home** opens the Google Home app, **not** a guaranteed open microphone. Some Google Assistant/Gemini versions may not expose a public one-tap listening entry point to third-party apps. There is no separate in-app Google voice control. Android package restrictions and OEM settings can change the result; test the actual Fold8 unlocked first, then with it locked.
 
 **Safety:** No Android shell/Accessibility automation, external services, garage requests, or any new permissions were added for the shortcut. The event only chooses the saved app or notification and **never operates the garage**. No PIN/password/unlock bypass. BLE address matching is not authenticated pairing. Do not press/hold BOOT while restarting or flashing; it is still the hardware ROM download-mode strapping pin.
 
