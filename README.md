@@ -316,3 +316,21 @@ Android Companion now has a single-line **Notification trigger text** field and 
 ### 2026-10-24 — approved Android launcher icon embedded in repo
 
 The owner's approved glossy black-and-blue two-slab icon (no gauge or navigation symbols) is committed under `app/branding/gc8_companion_icon.webp.base64` as a compact, 192×192 WebP (a faithful scaled rendering of the selected image). This is a **textual lossless base64 representation of the WebP bytes**, not a hand-drawn substitute. The Android Gradle `generateGc8LauncherIcon` task automatically decodes it to `app/src/main/res/drawable-nodpi/gc8_companion_bitmap.webp` during `preBuild`. The manifest references that actual bitmap for both `android:icon` and `android:roundIcon` rather than the earlier vector placeholder. No extra extraction script, manual copying or additional dependencies are needed: simply `git pull` and rebuild the APK normally. The generated bitmap is ignored by Git. Android runtime behaviour, BLE and garage automation are unchanged. APK compilation and on-device launcher verification have not been performed in this environment.
+
+
+### 2026-10-24 — native dark UI redesign (approved mockup, committed; build test pending)
+
+Based on the owner's approved *GC8 Companion* dark-blue app mockup, \`MainActivity.kt\` now presents **four real bottom tabs** while retaining the original integrations:
+
+| Tab | Existing functionality (not new capabilities) |
+| --- | --- |
+| **Home** | Waveshare BLE connect action, live connection summary, shortcuts to navigation and garage configuration |
+| **Navigation** | Google Maps notification-listener permission, launch Google Maps (no destination search), existing test-turn transmission, latest captured notification |
+| **Garage** | Android notification-posting permission, editable notification trigger text, existing arm/disable actions and their safety confirmation |
+| **Logs** | Existing drive-event export, clear, debug copy, captured-data refresh, notification access settings and voice-assistant shortcut |
+
+Visuals: native Android View hierarchy, dark Material dialog theme, midnight-navy backgrounds, cobalt/cyan buttons, rounded outlined cards, custom minimal line icons, the committed GC8 logo, and **decorative procedurally drawn night-road landscape headers**. No third-party libraries, network backgrounds, new data sources, vehicle telemetry, direct garage status/open-close commands, search, or additional app permissions. The illustration is decorative and **not a map or sensor display**. All status copy is grounded in current BLE connection and notification permissions; the existing garage status remains arming/notification status **not proof the garage moved**.
+
+The prior single scrolling screen and destination-search field have been replaced by sections. The Google Maps launch shortcut is retained without a search field. The application still uses the same MainActivity-bound BLE transport and therefore **is not guaranteed to remain connected after Android destroys the activity**; the UI change does not solve background-service persistence.
+
+**Deployment:** \`git pull\`, then \`docker compose run --rm android gradle --no-daemon assembleDebug\` and install the APK. Code has been source-inspected, **not Android-compiled or tested on a Fold8** by this assistant. Verify Home connection, Navigation listener and test turn, Garage notification permission and arm/disarm, Logs export/copy/clear and tab navigation after rebuilding. No ESP32 firmware rebuild required.
