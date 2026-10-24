@@ -204,9 +204,13 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
                     lastWriteMessage?.contains("|DEMO:") == true -> "Demo navigation"
                     else -> "Live navigation"
                 }
-                status(if (statusCode == BluetoothGatt.GATT_SUCCESS)
-                    "$kind accepted by GC8 BLE."
-                    else "$kind write failed (status $statusCode).")
+                // Routine minute-by-minute clock sync should not replace
+                // useful navigation/BLE status text on the Companion screen.
+                if (kind != "Phone time" || statusCode != BluetoothGatt.GATT_SUCCESS) {
+                    status(if (statusCode == BluetoothGatt.GATT_SUCCESS)
+                        "$kind accepted by GC8 BLE."
+                        else "$kind write failed (status $statusCode).")
+                }
             }
         }
         override fun onConnectionStateChange(g: BluetoothGatt, statusCode: Int, newState: Int) {
