@@ -44,7 +44,8 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
     // must never evict a pending route-ending command.
     private var writeSerial = 0
     private fun priority(packet: String?): Int = when {
-        packet == "GC8|1|CLEAR" -> 4
+        packet == "GC8|1|CLEAR" -> 5
+        packet?.startsWith("GC8|1|GARAGE|RESULT|") == true -> 4
         packet?.startsWith("GC8|1|LEFT|") == true ||
         packet?.startsWith("GC8|1|RIGHT|") == true ||
         packet?.startsWith("GC8|1|STRAIGHT|") == true -> 3
