@@ -369,10 +369,11 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                 val result = BootAppLauncher.onPhysicalPress(activity)
                 DriveLog.record(activity, "BOOT_APP", result.message)
                 status(result.message)
-                val outcome = when {
-                    !BootAppLauncher.chosen(activity) -> "SETUP"
-                    !result.handled -> "FAILED"
-                    else -> "READY"
+                val outcome = when (result.delivery) {
+                    BootAppLauncher.Delivery.DIRECT -> "OPENED"
+                    BootAppLauncher.Delivery.NOTIFICATION -> "ALERT"
+                    BootAppLauncher.Delivery.NONE ->
+                        if (!BootAppLauncher.chosen(activity)) "SETUP" else "FAILED"
                 }
                 sendPayload("GC8|1|APP|RESULT|$outcome", false)
             }
