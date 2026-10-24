@@ -46,6 +46,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     private fun priority(packet: String?): Int = when {
         packet == "GC8|1|CLEAR" -> 5
         packet?.startsWith("GC8|1|GARAGE|RESULT|") == true -> 4
+        packet?.startsWith("GC8|1|APP|RESULT|") == true -> 4
         packet?.startsWith("GC8|1|LEFT|") == true ||
         packet?.startsWith("GC8|1|RIGHT|") == true ||
         packet?.startsWith("GC8|1|STRAIGHT|") == true -> 3
@@ -250,7 +251,8 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             return
         }
         if (!isTest && message == lastSent && message != "GC8|1|START" &&
-            !message.startsWith("GC8|1|GARAGE|RESULT|")) {
+            !message.startsWith("GC8|1|GARAGE|RESULT|") &&
+            !message.startsWith("GC8|1|APP|RESULT|")) {
             DriveLog.record(activity, "BLE_DUPLICATE", message)
             return
         }
@@ -355,12 +357,26 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     private fun handleGarageEvent(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic,
                                   bytes: ByteArray) {
         if (g !== gatt || characteristic.uuid != GARAGE_EVENT_UUID) return
-        val text = bytes.toString(Charsets.US_ASCII)
-        if (text == "GC8|1|GARAGE|PRESS") {
-            DriveLog.record(activity, "GARAGE_EVENT", "PRESS received over GC8 BLE")
-            garageButtonPressed()
-        } else {
-            DriveLog.record(activity, "GARAGE_IGNORED", "Unknown BLE event")
+        when (bytes.toString(Charsets.US_ASCII)) {
+            "GC8|1|GARAGE|PRESS" -> {
+                DriveLog.record(activity, "GARAGE_EVENT", "Upper PWR over BLE")
+                garageButtonPressed()
+            }
+            "GC8|1|APP|PRESS" -> {
+                // Lower BOOT never controls the garage. Android launches the
+                // user-selected app when visible or issues a user-tap alert.
+                DriveLog.record(activity, "BOOT_EVENT", "Lower BOOT over BLE")
+                val result = BootAppLauncher.onPhysicalPress(activity)
+                DriveLog.record(activity, "BOOT_APP", result.message)
+                status(result.message)
+                val outcome = when {
+                    !BootAppLauncher.chosen(activity) -> "SETUP"
+                    !result.handled -> "FAILED"
+                    else -> "READY"
+                }
+                sendPayload("GC8|1|APP|RESULT|$outcome", false)
+            }
+            else -> DriveLog.record(activity, "BUTTON_IGNORED", "Unknown BLE button event")
         }
     }
 
