@@ -178,6 +178,10 @@ class GaugeBleClient(private val activity: Activity, private val report: (String
 
     fun disarmGarageRoutine(): String = routineBridge.disarm().message
 
+    fun garageNotificationTriggerText(): String = routineBridge.notificationTriggerText()
+    fun setGarageNotificationTriggerText(value: String): GarageRoutineTrigger.Result =
+        routineBridge.setNotificationTriggerText(value)
+
     fun sendTestNavigation() {
         sendPayload("GC8|1|RIGHT|250 m|Main St|Apex Motoring|DEMO:14.7", true)
     }
