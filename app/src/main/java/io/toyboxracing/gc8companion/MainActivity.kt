@@ -250,25 +250,41 @@ class MainActivity : Activity() {
 
     private fun buildTabs() {
         navbar.removeAllViews()
-        val names = arrayOf("Home", "Navigation", "Garage", "Logs")
-        val symbols = arrayOf("home", "nav", "garage", "logs")
+        val names = arrayOf("Home", "Navigation", "Garage", "Logs", "Talk")
+        val symbols = arrayOf("home", "nav", "garage", "logs", "mic")
         for (i in names.indices) {
             val active = i == currentTab
+            val isVoice = i == 4
             val tile = stack().apply {
                 gravity = Gravity.CENTER
                 setPadding(dp(1), dp(6), dp(1), dp(5))
-                background = if (active) shape(
-                    intArrayOf(Color.rgb(12, 79, 151), Color.rgb(8, 35, 78)),
-                    16, Color.rgb(22, 106, 214)
-                ) else null
+                background = when {
+                    isVoice -> shape(
+                        intArrayOf(Color.rgb(8, 115, 214), Color.rgb(7, 58, 115)),
+                        16, Color.rgb(61, 167, 252)
+                    )
+                    active -> shape(
+                        intArrayOf(Color.rgb(12, 79, 151), Color.rgb(8, 35, 78)),
+                        16, Color.rgb(22, 106, 214)
+                    )
+                    else -> null
+                }
                 isClickable = true
                 isFocusable = true
-                contentDescription = names[i] + " tab"
-                setOnClickListener { if (currentTab != i) showTab(i) }
+                contentDescription = if (isVoice) "Talk to Google voice assistant"
+                    else names[i] + " tab"
+                setOnClickListener {
+                    if (isVoice) launchGoogleVoice()
+                    else if (currentTab != i) showTab(i)
+                }
             }
-            tile.addView(Glyph(this, symbols[i], if (active) cyan else muted),
+            tile.addView(Glyph(this, symbols[i],
+                if (isVoice) Color.WHITE else if (active) cyan else muted),
                 LinearLayout.LayoutParams(dp(25), dp(25)))
-            val textView = label(names[i], 11f, if (active) cyan else muted, active).apply {
+            val textView = label(
+                names[i], 11f, if (isVoice) Color.WHITE else if (active) cyan else muted,
+                active || isVoice
+            ).apply {
                 gravity = Gravity.CENTER
             }
             tile.addView(textView)
@@ -791,6 +807,14 @@ class MainActivity : Activity() {
                     line(canvas, 8f, 9f, 16f, 9f)
                     line(canvas, 8f, 13f, 16f, 13f)
                     line(canvas, 8f, 17f, 14f, 17f)
+                }
+                "mic" -> {
+                    canvas.drawRoundRect(9f, 3f, 15f, 15f, 3f, 3f, paint)
+                    path.moveTo(5f, 11f)
+                    path.cubicTo(5f, 21f, 19f, 21f, 19f, 11f)
+                    canvas.drawPath(path, paint)
+                    line(canvas, 12f, 19f, 12f, 22f)
+                    line(canvas, 9f, 22f, 15f, 22f)
                 }
                 "ble" -> {
                     line(canvas, 12f, 2f, 12f, 22f)
