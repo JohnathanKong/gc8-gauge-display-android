@@ -387,3 +387,16 @@ The prior single scrolling screen and destination-search field have been replace
 **Verification pending:** Changes are committed; the firmware and APK have **not been compiled or tested on the Waveshare/Fold8 in this session**. Validate after builds: PWR still triggers only the existing garage routine; BOOT sends only the app action; app picker persists choice; foreground opens app; background shows tappable notification; missing permission displays failure, and BOOT during reset still permits normal flashing.
 
 **Build commands:** In firmware repo use your normal ESP-IDF `build.bat`/flash workflow. In the Android repo: `git pull` then `docker compose run --rm android gradle --no-daemon assembleDebug`.
+
+
+### 2026-10-24 — lower BOOT can request Android's default digital assistant
+
+The **physical Waveshare lower BOOT** shortcut now has a first-class **Use default assistant** option in **GC8 Companion → Home → Lower BOOT button**. The app also provides **Change phone's default assistant** (opens Android's Default apps settings), **Choose a different app**, **Test BOOT action**, and **Disable BOOT shortcut**.
+
+**On the Fold8:** Choose your preferred assistant under **Settings → Apps → Choose default apps → Digital assistant app** (Samsung labels may vary). This is a phone-level setting and does not require hardcoding Google Home, Gemini, or any package name in GC8 Companion. The new BOOT assignment defaults to **Default Android assistant** unless the owner had previously selected another app; that existing selection is preserved until changed. Disabling the shortcut remains disabled after restart.
+
+**Signal path unchanged:** Lower BOOT GPIO0 → `GC8|1|APP|PRESS` BLE notification → the Companion background service → `BootAppLauncher`. When Companion is visibly resumed, it tries a voice-oriented Android assistant action (`android.intent.action.VOICE_ASSIST`) and falls back to the public `Intent.ACTION_ASSIST` action if launch fails. The voice-oriented action is a platform system API, not a guaranteed public launch contract; neither action proves the assistant began listening. When Companion is in the background/phone locked, Android restricts starting activities; the app posts a tap-to-open notification using the public `ACTION_ASSIST` action. In either case, the assistant actually opened and its microphone state must be verified on the phone.
+
+**Waveshare feedback:** BLE replies distinguish direct launch requested (`GC8|1|APP|RESULT|OPENED`), notification posted (`...|ALERT`), action disabled/unconfigured (`...|SETUP`), or failure (`...|FAILED`). These statuses do **not** confirm that the assistant is listening. The existing upper PWR → garage handling is independent and unchanged.
+
+**Build requirements:** This change updates **Android only**; if the Waveshare already has the previously committed lower-BOOT APP-event firmware, no new ESP32 flash is needed. Otherwise, install the matching APP-event firmware once. Run `git pull` and `docker compose run --rm android gradle --no-daemon assembleDebug` in the Android repo. Source committed but APK build, default-assistant activation, locked-phone notification tap and actual microphone start remain **untested** on the Fold8.
