@@ -547,7 +547,7 @@ class MainActivity : Activity() {
         put(tools, action("Notification access settings", false) {
             startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
         }, 10)
-        put(tools, action("Ask voice assistant", false) { askVoiceAssistant() }, 0)
+        put(tools, action("Talk to Google", false) { launchGoogleVoice() }, 0)
         put(page, tools, 12)
         note("Diagnostic records stay on this phone until you explicitly export or copy them.")
     }
@@ -596,14 +596,32 @@ class MainActivity : Activity() {
         }
     }
 
-    private fun askVoiceAssistant() {
-        try {
-            startActivity(Intent(Intent.ACTION_VOICE_COMMAND))
-        } catch (_: ActivityNotFoundException) {
-            Toast.makeText(this, "No voice assistant supports this shortcut.", Toast.LENGTH_LONG).show()
-        } catch (_: SecurityException) {
-            Toast.makeText(this, "Voice assistant launch was blocked.", Toast.LENGTH_LONG).show()
+    /**
+     * Attempts Google's voice entry directly rather than allowing Samsung's
+     * generic ACTION_VOICE_COMMAND to open Bixby. The Google app determines
+     * whether its microphone opens immediately; no third-party guarantee.
+     */
+    private fun launchGoogleVoice() {
+        val googleApp = "com.google.android.googlequicksearchbox"
+        val actions = listOf(
+            Intent(Intent.ACTION_VOICE_COMMAND).setPackage(googleApp),
+            Intent(Intent.ACTION_ASSIST).setPackage(googleApp)
+        )
+        for (request in actions) {
+            try {
+                startActivity(request)
+                return
+            } catch (_: ActivityNotFoundException) {
+                // Some versions of Google's app do not expose this intent.
+            } catch (_: SecurityException) {
+                // Android/Google may block this entry point.
+            }
         }
+        Toast.makeText(
+            this,
+            "Google voice unavailable. Set Google/Gemini as your phone assistant.",
+            Toast.LENGTH_LONG
+        ).show()
     }
 
     private fun exportDiagnostics() {
