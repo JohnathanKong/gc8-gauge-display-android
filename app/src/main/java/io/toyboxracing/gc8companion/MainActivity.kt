@@ -394,12 +394,6 @@ class MainActivity : Activity() {
             }
         }, 9)
         put(boot, action("Choose a different app", false) { pickBootApp() }, 9)
-        put(boot, action("Test BOOT action", false) {
-            val result = BootAppLauncher.onPhysicalPress(this)
-            if (!result.handled) {
-                Toast.makeText(this, result.message, Toast.LENGTH_LONG).show()
-            }
-        }, 9)
         put(boot, action("Disable BOOT shortcut", false) {
             BootAppLauncher.clear(this)
             showTab(0)
