@@ -106,12 +106,33 @@ class MainActivity : Activity() {
         }
         root.addView(garageStatus)
         root.addView(TextView(this).apply {
-            text = "A tap of the upper GC8 power button posts a " +
-                "GC8_GARAGE_TRIGGER notification. Set a Galaxy routine: " +
-                "IF notification received from GC8 Companion containing " +
-                "GC8_GARAGE_TRIGGER; THEN operate GC8 Garage Trigger " +
-                "in SmartThings. Test the virtual switch WITHOUT the live " +
-                "garage routines enabled first."
+            text = "Notification trigger text (Samsung Routines IF condition)"
+            textSize = 15f
+        })
+        val garageTriggerInput = EditText(this).apply {
+            hint = "e.g. Garage Trigger"
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or
+                android.text.InputType.TYPE_TEXT_FLAG_CAP_WORDS
+            setSingleLine(true)
+            setText(ble.garageNotificationTriggerText())
+        }
+        root.addView(garageTriggerInput)
+        root.addView(Button(this).apply {
+            text = "Save garage trigger text"
+            setOnClickListener {
+                val result = ble.setGarageNotificationTriggerText(
+                    garageTriggerInput.text.toString())
+                if (result.sent) garageTriggerInput.setText(ble.garageNotificationTriggerText())
+                Toast.makeText(this@MainActivity, result.message, Toast.LENGTH_LONG).show()
+            }
+        })
+        root.addView(TextView(this).apply {
+            text = "Upper PWR posts a GC8 Companion notification containing the saved text. " +
+                "In Samsung Modes and Routines: IF notification from GC8 Companion " +
+                "contains this text; THEN choose your SmartThings switch " +
+                "(named Garage Trigger) and its action. This text field does NOT " +
+                "select or operate a SmartThings device by name. Disable the live " +
+                "garage routines while testing the notification bridge."
             textSize = 14f
         })
         root.addView(Button(this).apply {
