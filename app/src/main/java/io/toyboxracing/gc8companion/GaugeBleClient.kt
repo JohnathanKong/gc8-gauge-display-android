@@ -148,6 +148,12 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                 gatt?.close()
                 val connection = result.device.connectGatt(activity, false, gattCallback)
                 gatt = connection
+                if (connection == null) {
+                    connecting = false
+                    status("Bluetooth GATT initialization failed; retrying.")
+                    retry()
+                    return
+                }
                 // A vendor BLE stack may never report connection completion.
                 handler.postDelayed({
                     if (autoReconnect && connecting && connection != null && gatt === connection) {
