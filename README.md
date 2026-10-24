@@ -360,43 +360,16 @@ The prior single scrolling screen and destination-search field have been replace
 **Build:** In Android repo: \`git pull\` then \`docker compose run --rm android gradle --no-daemon assembleDebug\`. No Waveshare firmware update needed.
 
 
-### 2026-10-24 — System-bar safe layout
+### 2026-10-24 — system-bar safe layout
+GC8 Companion uses system, display-cutout and keyboard insets to keep controls out from under Samsung's system bars. The four tabs are **Home**, **Navigation**, **Garage**, **Logs**. The foreground BLE service, Maps notification bridge and upper PWR garage routine are unchanged.
 
-- GC8 Companion explicitly handles Android system-bar, display-cutout and keyboard insets in its native root view. This prevents the clock/status icons covering the app header and keeps the bottom menu above Samsung's system navigation controls (including three-button mode). The implementation is adaptive rather than a hardcoded bottom margin.
-- The bottom navigation contains **Home**, **Navigation**, **Garage**, and **Logs**. There is no Google voice action in the Android navigation or Logs; app launching is configured only through the **Lower BOOT button** selector on Home.
-- Rebuild with `git pull` then `docker compose run --rm android gradle --no-daemon assembleDebug`. Source committed; needs APK compilation and verification on the actual Fold8, including Samsung system navigation bars and both display modes.
+### 2026-10-24 — lower BOOT invokes the phone's native voice assistant via BLE HID
+**Current design (replaces earlier Android BOOT app picker and notification launch bridge):**
+- **Lower BOOT**, GPIO0, on the physical Waveshare sends a Bluetooth HID-over-GATT Consumer Control **Voice Command usage 0x0CF** press/release. Android maps that HID usage to `KEYCODE_VOICE_ASSIST`; it is handled by Android rather than the GC8 Companion Activity. The user has **Gemini** selected as the phone's digital assistant. Firmware does not invoke any Google API or require foreground app activity.
+- **Upper PWR**, GPIO3, remains the existing independently debounced, opt-in garage routine event `GC8|1|GARAGE|PRESS`. GPS/Maps and BLE clock writes retain their existing UUID and protocol.
+- Companion no longer contains the unused **BOOT app picker**, **Test BOOT** button, voice shortcut or `BootAppLauncher.kt`. Physical BOOT events no longer pass through Companion. **The Android APK requires one update to remove the now-unused settings UI; the HID voice function itself requires only the new Waveshare firmware and a native Bluetooth pairing.**
+- After flashing the firmware, stop GC8 Companion's service temporarily, open **Fold8 → Settings → Connections → Bluetooth**, and pair **GC8 Display** as a Bluetooth input/voice remote. Android may show a pairing prompt; confirm it. If Android retains a stale GC8 pairing or fails discovery, remove the old paired device and pair again. Then start Companion's service for navigation/garage. HID bonding must be persisted in the ESP32 NVS, so `build.bat` updates existing sdkconfig for `CONFIG_BT_NIMBLE_NVS_PERSIST=y`. Do not erase flash/NVS after pairing.
+- Press and release the lower BOOT button **after startup**, approximately 0.3–0.6 seconds; the display should show **VOICE KEY SENT** if an encrypted, bonded Android HID host has subscribed, or **PAIR VOICE REMOTE** if it has not. No in-app test button or app visibility requirement. If Android receives the key, it decides whether to open Gemini and whether listening is permitted while locked; **microphone activation and locked-device voice access are not guaranteed by the HID profile**.
+- This feature is **not built or device-verified by the assistant**. First confirmation must come from a firmware build, pairing and a real physical BOOT press on the Fold8. Use only when safely parked. No garage-related code or control is triggered by BOOT; holding GPIO0 while restarting retains the ESP32 ROM flashing shortcut.
 
-
-### 2026-10-24 — configurable lower BOOT button app shortcut (both repos)
-
-**Owner goal:** The LOWER **BOOT** button on the exact round ESP32-S3-Touch-AMOLED-1.75C should be assignable to any installed Android app that exposes a launcher activity (for example, Google Home). This is **separate** from the UPPER PWR → garage trigger, which is unchanged.
-
-**Setup and use:**
-1. Pull/build/flash the **Waveshare ESP32 firmware** and pull/build/install the **Android Companion APK**. Updating Android alone cannot add firmware BOOT events.
-2. Start GC8 Companion's background service and connect Bluetooth to the Waveshare. On **Home → Lower BOOT button**, tap **Choose an app**; Android's launcher-activity picker shows installed apps. Select the target, then use the physical Waveshare BOOT button to test the actual BLE path while GC8 Companion is visible. **Clear button assignment** disables the shortcut; reassignment never changes the garage routines.
-3. Once the Waveshare has finished starting normally, give its **lower BOOT** a short press (press and release; avoid holding BOOT during startup/reset). The firmware detects stable active-low GPIO0, sends `GC8|1|APP|PRESS` through the *existing* subscribed BLE notify characteristic, and displays a temporary status toast. The upper PWR still sends `GC8|1|GARAGE|PRESS`, with its original debounce and cooldown.
-4. If GC8 Companion is visibly open, the chosen Android launcher activity is requested immediately. If it is in the background or the phone is locked, **Android blocks unrestricted background activity starts even for foreground services**. Companion posts a separate **BOOT button app shortcuts** notification instead; tap the notification on the phone to launch the chosen app. This is intentionally **not** an automatic unlock or background-launch bypass.
-5. App assignment survives UI/service restarts and phone reboot (until cleared or app data removed). The service must be active and BLE subscribed to receive presses; if disconnected the Waveshare reports the phone is offline. Android notifications must be allowed for the background-tap path.
-
-**Voice/smart home:** Choosing **Google Home** opens the Google Home app, **not** a guaranteed open microphone. Some Google Assistant/Gemini versions may not expose a public one-tap listening entry point to third-party apps. There is no separate in-app Google voice control. Android package restrictions and OEM settings can change the result; test the actual Fold8 unlocked first, then with it locked.
-
-**Safety:** No Android shell/Accessibility automation, external services, garage requests, or any new permissions were added for the shortcut. The event only chooses the saved app or notification and **never operates the garage**. No PIN/password/unlock bypass. BLE address matching is not authenticated pairing. Do not press/hold BOOT while restarting or flashing; it is still the hardware ROM download-mode strapping pin.
-
-**Firmware/Android compatibility:** Existing firmware cannot emit `GC8|1|APP|PRESS`; existing Android APKs ignore unknown APP events. The new Android APK and new firmware are therefore **both required** for the physical shortcut. The BLE service UUID and characteristic UUIDs are unchanged, as are navigation and garage protocols.
-
-**Verification pending:** Changes are committed; the firmware and APK have **not been compiled or tested on the Waveshare/Fold8 in this session**. Validate after builds: PWR still triggers only the existing garage routine; BOOT sends only the app action; app picker persists choice; foreground opens app; background shows tappable notification; missing permission displays failure, and BOOT during reset still permits normal flashing.
-
-**Build commands:** In firmware repo use your normal ESP-IDF `build.bat`/flash workflow. In the Android repo: `git pull` then `docker compose run --rm android gradle --no-daemon assembleDebug`.
-
-
-### 2026-10-24 — lower BOOT can request Android's default digital assistant
-
-The **physical Waveshare lower BOOT** shortcut now has a first-class **Use default assistant** option in **GC8 Companion → Home → Lower BOOT button**. The app also provides **Change phone's default assistant** (opens Android's Default apps settings), **Choose a different app**, and **Disable BOOT shortcut**.
-
-**On the Fold8:** Choose your preferred assistant under **Settings → Apps → Choose default apps → Digital assistant app** (Samsung labels may vary). This is a phone-level setting and does not require hardcoding Google Home, Gemini, or any package name in GC8 Companion. The new BOOT assignment defaults to **Default Android assistant** unless the owner had previously selected another app; that existing selection is preserved until changed. Disabling the shortcut remains disabled after restart.
-
-**Signal path unchanged:** Lower BOOT GPIO0 → `GC8|1|APP|PRESS` BLE notification → the Companion background service → `BootAppLauncher`. When Companion is visibly resumed, it tries a voice-oriented Android assistant action (`android.intent.action.VOICE_ASSIST`) and falls back to the public `Intent.ACTION_ASSIST` action if launch fails. The voice-oriented action is a platform system API, not a guaranteed public launch contract; neither action proves the assistant began listening. When Companion is in the background/phone locked, Android restricts starting activities; the app posts a tap-to-open notification using the public `ACTION_ASSIST` action. In either case, the assistant actually opened and its microphone state must be verified on the phone.
-
-**Waveshare feedback:** BLE replies distinguish direct launch requested (`GC8|1|APP|RESULT|OPENED`), notification posted (`...|ALERT`), action disabled/unconfigured (`...|SETUP`), or failure (`...|FAILED`). These statuses do **not** confirm that the assistant is listening. The existing upper PWR → garage handling is independent and unchanged.
-
-**Build requirements:** This change updates **Android only**; if the Waveshare already has the previously committed lower-BOOT APP-event firmware, no new ESP32 flash is needed. Otherwise, install the matching APP-event firmware once. Run `git pull` and `docker compose run --rm android gradle --no-daemon assembleDebug` in the Android repo. Source committed but APK build, default-assistant activation, locked-phone notification tap and actual microphone start remain **untested** on the Fold8.
+**Build:** Firmware repo `git pull`, `.\\build.bat`, flash if successful. Android repo `git pull`, `docker compose run --rm android gradle --no-daemon assembleDebug` and install the APK whenever updating the clean UI. The Android app needs no new Bluetooth permissions or runtime controls for native HID.
