@@ -312,24 +312,39 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     // Real device settings, persisted by the Waveshare. No screen taps.
     fun requestDeviceStatus() {
         handler.post {
-            if (writable == null) settingResult = "Connect the Waveshare first."
-            else sendPayload("GC8|1|SYS|GET", false)
+            if (writable == null) {
+                settingResult = "Connect the Waveshare first."
+                status(settingResult)
+            } else sendPayload("GC8|1|SYS|GET", false)
+        }
+    }
+    private fun submitDisplaySetting(message: String, description: String) {
+        handler.post {
+            if (writable == null) {
+                settingResult = "Not connected. No setting was changed."
+                status(settingResult)
+                return@post
+            }
+            settingResult = "Applying $description; waiting for Waveshare confirmation…"
+            status(settingResult)
+            sendPayload(message, false)
         }
     }
     fun setDisplayRotation(degrees: Int) {
         if (degrees !in listOf(0, 90, 180, 270)) return
-        handler.post { sendPayload("GC8|1|CFG|ROT|$degrees", false) }
+        submitDisplaySetting("GC8|1|CFG|ROT|$degrees", "$degrees° rotation")
     }
     fun calibrateDisplayAuto() {
-        handler.post { sendPayload("GC8|1|CFG|AUTO", false) }
+        submitDisplaySetting("GC8|1|CFG|AUTO", "automatic rotation")
     }
     fun setDisplayBrightness(percent: Int) {
         if (percent !in listOf(40, 60, 75, 90, 100)) return
-        handler.post { sendPayload("GC8|1|CFG|BRIGHT|$percent", false) }
+        submitDisplaySetting("GC8|1|CFG|BRIGHT|$percent", "$percent% brightness")
     }
     fun setDisplayIdleDim(seconds: Int) {
         if (seconds !in listOf(0, 60, 300, 900)) return
-        handler.post { sendPayload("GC8|1|CFG|DIM|$seconds", false) }
+        submitDisplaySetting("GC8|1|CFG|DIM|$seconds",
+            if (seconds == 0) "idle dim OFF" else "idle dim after ${seconds / 60} min")
     }
 
     fun sendClearNavigation() {
@@ -549,8 +564,9 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             return
         }
         if (message.startsWith("GC8|1|ACK|")) {
-            settingResult = if (message.endsWith("|OK")) "Setting applied by Waveshare."
-                            else "Waveshare rejected setting (check calibration)."
+            settingResult = if (message.endsWith("|OK"))
+                "Waveshare applied the setting; reading back saved values…"
+            else "Waveshare rejected setting (check calibration)."
             DriveLog.record(activity, "DEVICE_SETTING", settingResult)
             status(settingResult)
             return
