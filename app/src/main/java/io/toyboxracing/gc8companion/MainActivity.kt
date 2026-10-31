@@ -46,9 +46,10 @@ import androidx.core.view.WindowInsetsCompat
 /**
  * Native, dependency-light presentation of the EXISTING companion functions.
  *
- * Four pages: Home (BLE), Navigation (Google Maps notifications), Garage
- * (opt-in routine bridge), Logs (existing local diagnostics). No new device
- * controls, search, ECU readings, SmartThings/Meross API or background service.
+ * Four pages: Home (BLE), Navigation (Maps notifications), Garage (opt-in
+ * Samsung routine bridge), and Display & diagnostics. The last page owns all
+ * orientation/brightness/idle settings and reads live Waveshare diagnostics.
+ * The 1.75-inch cockpit is DISPLAY-ONLY; no gauge touch menu is necessary.
  */
 class MainActivity : Activity() {
     private val exportRequestCode = 7402
@@ -250,6 +251,7 @@ class MainActivity : Activity() {
         }
         buildTabs()
         scroller.scrollTo(0, 0)
+        if (currentTab == 3 && isConnected()) ble?.requestDeviceStatus()
     }
 
     private fun buildTabs() {
@@ -703,10 +705,7 @@ class MainActivity : Activity() {
         ContextCompat.registerReceiver(this, bridgeReceiver,
             IntentFilter(Gc8ConnectionService.ACTION_STATUS), ContextCompat.RECEIVER_NOT_EXPORTED)
         lastBleMessage = Gc8ConnectionService.latestStatus
-        if (::page.isInitialized) {
-            showTab(currentTab)
-            if (currentTab == 3 && isConnected()) ble?.requestDeviceStatus()
-        }
+        if (::page.isInitialized) showTab(currentTab)
     }
 
     override fun onPause() {
