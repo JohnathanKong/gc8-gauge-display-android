@@ -125,6 +125,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     }
     private var autoReconnect = false
     private var retryCount = 0
+    private var connectionAttemptStartMs = 0L
     // Fast initial discovery, with bounded backoff after repeated misses.
     private fun nextRetryMs(): Long = when {
         retryCount <= 1 -> 1800L
@@ -173,6 +174,8 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     }
 
     fun connect() {
+        if (!autoReconnect || connectionAttemptStartMs == 0L)
+            connectionAttemptStartMs = SystemClock.elapsedRealtime()
         autoReconnect = true
         if (scanning || connecting || writable != null) return
         handler.removeCallbacks(retryTask)
@@ -593,6 +596,13 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     private fun afterGarageSubscription() {
         if (writable == null || linkInitialized) return
         linkInitialized = true
+        val elapsedMs = SystemClock.elapsedRealtime() - connectionAttemptStartMs
+        if (connectionAttemptStartMs > 0L) {
+            DriveLog.record(activity, "BLE_READY_LATENCY",
+                "Companion GATT navigation bridge ready in ${elapsedMs}ms")
+        }
+        connectionAttemptStartMs = 0L
+        status("GC8 navigation bridge ready")
         // Preserve all existing START/CLEAR + clock behavior.
         if (MapsNotificationListener.isRouteActive()) {
             sendStartNavigation()
@@ -710,6 +720,8 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                 reportedDisplayState = null
                 deviceSummary = "Waveshare disconnected. Reconnect and refresh."
                 status("Disconnected (status $statusCode)")
+                if (connectionAttemptStartMs == 0L)
+                    connectionAttemptStartMs = SystemClock.elapsedRealtime()
                 val hadBondedAttempt = bondedAttempt
                 bondedAttempt = false
                 if (hadBondedAttempt)
@@ -800,6 +812,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     fun close() {
         autoReconnect = false
         connecting = false
+        connectionAttemptStartMs = 0L
         handler.removeCallbacks(retryTask)
         handler.removeCallbacks(clockSync)
         if (activeClient === this) activeClient = null
