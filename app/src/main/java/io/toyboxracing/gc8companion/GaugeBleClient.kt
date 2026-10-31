@@ -667,9 +667,13 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
         }
 
         override fun onConnectionStateChange(g: BluetoothGatt, statusCode: Int, newState: Int) {
+            // Android may call back on a Binder thread before connectGatt()
+            // has returned its handle. Queue on the same main handler used
+            // for connection assignment, writes, and retries.
+            handler.post {
             if (g !== gatt || !autoReconnect) {
                 try { g.close() } catch (_: SecurityException) {}
-                return
+                return@post
             }
             connecting = false
             if (statusCode == BluetoothGatt.GATT_SUCCESS && newState == BluetoothProfile.STATE_CONNECTED) {
@@ -702,8 +706,10 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                     retry(if (hadBondedAttempt) 500L else nextRetryMs())
                 }
             }
+            } // main-handler serialized connection transition
         }
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, statusCode: Int) {
+            if (g !== gatt) return
             status("BLE MTU: $mtu; discovering services…")
             try { g.discoverServices() } catch (_: SecurityException) { status("Permission missing.") }
         }
