@@ -561,6 +561,8 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                         finished == "GC8|1|START" -> "Navigation started"
                         finished?.startsWith("GC8|1|GARAGE|RESULT|") == true -> "Garage signal feedback"
                         finished?.startsWith("GC8|1|TIME|") == true -> "Phone time"
+                        finished?.startsWith("GC8|1|CFG|") == true -> "Display setting"
+                        finished == "GC8|1|SYS|GET" -> "Device status request"
                         finished?.contains("|DEMO:") == true -> "Demo navigation"
                         else -> "Live navigation"
                     }
