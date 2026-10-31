@@ -44,6 +44,42 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     @Volatile private var writable: BluetoothGattCharacteristic? = null
     private var garageEvents: BluetoothGattCharacteristic? = null
     private var linkInitialized = false
+    private val deviceFields = linkedMapOf<String, String>()
+    @Volatile private var deviceSummary = "Connect to the Waveshare, then tap Refresh device status."
+    @Volatile private var settingResult = "No display setting sent yet."
+    fun displaySettingsStatus(): String = settingResult
+    fun deviceDiagnosticSummary(): String = deviceSummary
+
+    private fun rebuildDeviceSummary() {
+        fun valAt(key: String, n: Int) =
+            deviceFields[key]?.split(',')?.getOrNull(n) ?: "?"
+        fun flag(v: String) = when (v) { "1" -> "Yes"; "0" -> "No"; else -> "Unknown" }
+        val dim = valAt("B", 1).toIntOrNull()
+        val pct = valAt("F", 0).toIntOrNull()
+        deviceSummary = buildString {
+            appendLine("SCREEN")
+            appendLine("  Orientation: ${if (valAt("R", 1) == "1") "Auto" else "Locked"} / ${valAt("R", 0)}°")
+            appendLine("  Brightness: ${valAt("B", 0)}%")
+            appendLine("  Idle dim: ${if (dim == 0) "Off" else if (dim != null) "${dim / 60} min" else "Unknown"}")
+            appendLine()
+            appendLine("BLUETOOTH")
+            appendLine("  Companion: ${flag(valAt("H", 0))}")
+            appendLine("  Voice HID: ${flag(valAt("H", 1))}")
+            appendLine("  Media HID: ${flag(valAt("H", 2))}")
+            appendLine("  Active links: ${valAt("L", 0)} / total ${valAt("L", 1)}")
+            appendLine("  Last disconnect: code ${valAt("D", 0)} (${valAt("D", 1)} drops)")
+            appendLine("  HID reports sent: voice ${valAt("C", 0)}, media ${valAt("C", 1)}")
+            appendLine()
+            appendLine("DEVICE")
+            appendLine("  Uptime: ${valAt("U", 0)} seconds")
+            appendLine("  Free internal RAM: ${valAt("M", 0)} KB")
+            appendLine("  Reset code: ${valAt("X", 0)} (boot #${valAt("X", 1)})")
+            appendLine("  USB power: ${flag(valAt("P", 0))}")
+            appendLine("  Battery present: ${flag(valAt("P", 1))}")
+            appendLine("  Charging: ${flag(valAt("P", 2))}")
+            append("  Battery level: ${if (pct != null && pct >= 0) "$pct%" else "Unknown"}")
+        }
+    }
     private var lastGaragePressAt = 0L
     @Volatile private var writePending = false
     private var latestQueued: String? = null
@@ -54,6 +90,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     private var writeSerial = 0
     private fun priority(packet: String?): Int = when {
         packet == "GC8|1|CLEAR" -> 5
+        packet?.startsWith("GC8|1|CFG|") == true -> 4
         packet?.startsWith("GC8|1|GARAGE|RESULT|") == true -> 4
         packet?.startsWith("GC8|1|LEFT|") == true ||
         packet?.startsWith("GC8|1|RIGHT|") == true ||
@@ -61,6 +98,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
         packet?.startsWith("GC8|1|INFO|") == true -> 3
         packet == "GC8|1|HOLD" -> 2
         packet == "GC8|1|START" -> 1
+        packet == "GC8|1|SYS|GET" -> 1
         else -> 0
     }
     private var autoReconnect = false
@@ -223,6 +261,29 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             retry()
         }
     }
+    // Real device settings, persisted by the Waveshare. No screen taps.
+    fun requestDeviceStatus() {
+        handler.post {
+            if (writable == null) settingResult = "Connect the Waveshare first."
+            else sendPayload("GC8|1|SYS|GET", false)
+        }
+    }
+    fun setDisplayRotation(degrees: Int) {
+        if (degrees !in listOf(0, 90, 180, 270)) return
+        handler.post { sendPayload("GC8|1|CFG|ROT|$degrees", false) }
+    }
+    fun calibrateDisplayAuto() {
+        handler.post { sendPayload("GC8|1|CFG|AUTO", false) }
+    }
+    fun setDisplayBrightness(percent: Int) {
+        if (percent !in listOf(40, 60, 75, 90, 100)) return
+        handler.post { sendPayload("GC8|1|CFG|BRIGHT|$percent", false) }
+    }
+    fun setDisplayIdleDim(seconds: Int) {
+        if (seconds !in listOf(0, 60, 300, 900)) return
+        handler.post { sendPayload("GC8|1|CFG|DIM|$seconds", false) }
+    }
+
     fun sendClearNavigation() {
         handler.post { sendPayload("GC8|1|CLEAR", false) }
     }
@@ -416,7 +477,28 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     private fun handleGarageEvent(g: BluetoothGatt, characteristic: BluetoothGattCharacteristic,
                                   bytes: ByteArray) {
         if (g !== gatt || characteristic.uuid != GARAGE_EVENT_UUID) return
-        when (bytes.toString(Charsets.US_ASCII)) {
+        val message = bytes.toString(Charsets.US_ASCII)
+        if (message.startsWith("GC8|1|S|")) {
+            val contents = message.removePrefix("GC8|1|S|")
+            if (contents == "END") {
+                rebuildDeviceSummary()
+                status("Waveshare status refreshed")
+            } else {
+                val parts = contents.split('|', limit = 2)
+                if (parts.size == 2 && parts[0] in listOf(
+                    "R", "B", "H", "L", "D", "C", "U", "M", "X", "P", "F"
+                )) deviceFields[parts[0]] = parts[1]
+            }
+            return
+        }
+        if (message.startsWith("GC8|1|ACK|")) {
+            settingResult = if (message.endsWith("|OK")) "Setting applied by Waveshare."
+                            else "Waveshare rejected setting (check calibration)."
+            DriveLog.record(activity, "DEVICE_SETTING", settingResult)
+            status(settingResult)
+            return
+        }
+        when (message) {
             "GC8|1|GARAGE|PRESS" -> {
                 DriveLog.record(activity, "GARAGE_EVENT", "Upper PWR over BLE")
                 garageButtonPressed()
@@ -444,6 +526,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             MapsNotificationListener.replayCurrentGuidance()
         } else sendClearNavigation()
         handler.postDelayed({ sendClockTime() }, 350L)
+        handler.postDelayed({ requestDeviceStatus() }, 650L)
     }
 
     private val gattCallback = object : BluetoothGattCallback() {
@@ -539,6 +622,8 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                 latestQueued = null
                 lastWriteMessage = null
                 lastSent = null
+                deviceFields.clear()
+                deviceSummary = "Waveshare disconnected. Reconnect and refresh."
                 status("Disconnected (status $statusCode)")
                 val hadBondedAttempt = bondedAttempt
                 bondedAttempt = false
