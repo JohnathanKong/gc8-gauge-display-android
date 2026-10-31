@@ -1,5 +1,15 @@
 # GC8 Digital Companion — Android
 
+## CURRENT: Phone-managed Waveshare display and live diagnostics (Oct 31, 2026)
+
+**No more touchscreen menus on the Waveshare.** GC8 Companion is the sole settings interface for gauge orientation, automatic rotation calibration, brightness, idle dimming and diagnostics. Open **Home → Open display controls** or the bottom **Logs** tab, whose page starts with **Display & diagnostics** before the existing DriveLog and Google Maps capture tools.
+
+Four explicit **0° / 90° / 180° / 270°** buttons save a manual orientation immediately to device NVS, so even a sideways or inverted gauge can be rescued **without touching its screen**. **Calibrate automatic rotation** saves the reference when the gauge is upright, still, USB-down. Brightness options: **40%, 60%, 75%, 90%, 100%**. Idle dim: **off, 1, 5 or 15 minutes**. The firmware still retains the original GATT, garage and Gemini button behavior. No AEM telemetry was added.
+
+The phone reads the device's live status through the existing garage-event BLE notification characteristic (`GC8|1|S|...` records) and formats GATT/HID subscriptions, HID submit counters, BLE drop reason/count, reset cause, uptime, RAM, USB power, battery presence, and charge state. Status values are **reported by the Waveshare**, not copied from phone preferences. `ACK|OK` confirms that the firmware accepted/applied a setting; failure or missing connection should not be reported as success. System status is refreshed on page open/reconnect and by a large **Refresh device status** button. Note that an HID report submission is not proof that Samsung invoked Gemini.
+
+**Both the current APK and current ESP32 firmware are required.** Builds are not verified by the assistant here. The prior October 24 on-gauge diagnostic touch scheme has been superseded. If GATT is disconnected, reconnect before attempting to change rotation.
+
 ## Working garage-door button — setup guide (2026-10-24)
 
 **Owner-reported working:** Upper Waveshare PWR → BLE → GC8 Companion notification → Samsung **Modes and Routines** notification bridge → SmartThings virtual switch **Garage Trigger** → mutually exclusive **Garage Open / Garage Close** SmartThings routines → virtual switch returns OFF. The earlier end-to-end failure was caused by SmartThings reporting an **incorrect garage-door state**; the owner corrected it and reported successful operation.
