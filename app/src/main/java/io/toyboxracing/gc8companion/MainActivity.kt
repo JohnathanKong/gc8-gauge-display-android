@@ -256,8 +256,8 @@ class MainActivity : Activity() {
 
     private fun buildTabs() {
         navbar.removeAllViews()
-        val names = arrayOf("Home", "Navigation", "Garage", "Logs")
-        val symbols = arrayOf("home", "nav", "garage", "logs")
+        val names = arrayOf("Home", "Navigation", "Garage", "Display")
+        val symbols = arrayOf("home", "nav", "garage", "settings")
         for (i in names.indices) {
             val active = i == currentTab
             val tile = stack().apply {
