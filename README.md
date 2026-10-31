@@ -2,7 +2,7 @@
 
 ## CURRENT: Phone-managed Waveshare display and live diagnostics (Oct 31, 2026)
 
-**No more touchscreen menus on the Waveshare.** GC8 Companion is the sole settings interface for gauge orientation, automatic rotation calibration, brightness, idle dimming and diagnostics. Open **Home → Open display controls** or the bottom **Logs** tab, whose page starts with **Display & diagnostics** before the existing DriveLog and Google Maps capture tools.
+**No more touchscreen menus on the Waveshare.** GC8 Companion is the sole settings interface for gauge orientation, automatic rotation calibration, brightness, idle dimming and diagnostics. Open **Home → Open display controls** or the bottom **Display** tab, whose page starts with **Display & diagnostics** before the existing DriveLog and Google Maps capture tools.
 
 Four explicit **0° / 90° / 180° / 270°** buttons save a manual orientation immediately to device NVS, so even a sideways or inverted gauge can be rescued **without touching its screen**. **Calibrate automatic rotation** saves the reference when the gauge is upright, still, USB-down. Brightness options: **40%, 60%, 75%, 90%, 100%**. Idle dim: **off, 1, 5 or 15 minutes**. The firmware still retains the original GATT, garage and Gemini button behavior. No AEM telemetry was added.
 
