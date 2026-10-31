@@ -125,6 +125,15 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     }
     private var autoReconnect = false
     private var retryCount = 0
+    // Fast initial discovery, with bounded backoff after repeated misses.
+    private fun nextRetryMs(): Long = when {
+        retryCount <= 1 -> 1800L
+        retryCount <= 3 -> 4000L
+        else -> 12000L
+    }
+    private fun markRetry() {
+        retryCount = (retryCount + 1).coerceAtMost(8)
+    }
     private var connecting = false
     private val retryTask = Runnable { if (autoReconnect) connect() }
     private fun retry(afterMs: Long = 20000L) {
@@ -189,8 +198,11 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                 try {
                     val device = adapter.getRemoteDevice(saved)
                     if (device.bondState == BluetoothDevice.BOND_BONDED) {
-                        status("Reconnecting through paired GC8 device…")
-                        if (startGattConnection(device, true)) return
+                        status("Connecting directly to paired GC8 device…")
+                        // autoConnect=true could spend 12s waiting for Android's
+                        // background connection scheduling before we scanned.
+                        // A verified, nearby device is faster with direct GATT.
+                        if (startGattConnection(device, false, true)) return
                     }
                 } catch (e: Exception) {
                     DriveLog.record(activity, "BLE_BONDED_FALLBACK", e.javaClass.simpleName)
@@ -217,28 +229,36 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                 filters.add(ScanFilter.Builder().setDeviceAddress(saved).build())
             scanner.startScan(
                 filters,
-                ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_BALANCED).build(), scanCallback
+                ScanSettings.Builder().setScanMode(
+                    if (retryCount <= 2) ScanSettings.SCAN_MODE_LOW_LATENCY
+                    else ScanSettings.SCAN_MODE_BALANCED
+                ).build(), scanCallback
             )
             handler.postDelayed({
                 if (scanning) {
                     stopScan()
                     // No advertising packet does not prove out-of-range:
                     // Android may already hold the HID connection.
-                    status("No GC8 advertisement; trying paired device again.")
+                    status("GC8 not advertising; retrying connection.")
                     tryBondedFirst = true
-                    retry(20000L)
+                    markRetry()
+                    retry(nextRetryMs())
                 }
-            }, 12000)
+            }, 8500L)
         } catch (e: Exception) {
             scanning = false
             status("Bluetooth scan unavailable: " + e.javaClass.simpleName)
-            retry(30000L)
+            markRetry()
+            retry(nextRetryMs())
         }
     }
 
-    private fun startGattConnection(device: BluetoothDevice, useAutoConnect: Boolean): Boolean {
+    private fun startGattConnection(
+        device: BluetoothDevice, useAutoConnect: Boolean,
+        fromVerifiedBond: Boolean = false
+    ): Boolean {
         connecting = true
-        bondedAttempt = useAutoConnect
+        bondedAttempt = fromVerifiedBond
         try {
             gatt?.close()
             val connection = device.connectGatt(
@@ -254,11 +274,13 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                     connecting = false
                     try { connection.disconnect(); connection.close() } catch (_: SecurityException) {}
                     gatt = null
-                    status(if (useAutoConnect) "Paired connection timed out; scanning…"
-                           else "Waveshare connection timed out; retrying.")
-                    retry(if (useAutoConnect) 1000L else 5000L)
+                    status(if (fromVerifiedBond) "Paired GC8 slow; scanning instead…"
+                           else "GC8 connection timed out; retrying.")
+                    if (fromVerifiedBond) tryBondedFirst = false
+                    markRetry()
+                    retry(if (fromVerifiedBond) 500L else nextRetryMs())
                 }
-            }, if (useAutoConnect) 12000L else 15000L)
+            }, if (fromVerifiedBond) 7000L else 11000L)
             return true
         } catch (e: Exception) {
             connecting = false
@@ -274,13 +296,17 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             stopScan()
             bondedAttempt = false
             status("Found GC8 service/device; connecting…")
-            if (!startGattConnection(result.device, false)) retry()
+            if (!startGattConnection(result.device, false)) {
+                markRetry()
+                retry(nextRetryMs())
+            }
         }
         override fun onScanFailed(errorCode: Int) {
             scanning = false
             status("Scan failed: $errorCode")
             tryBondedFirst = true
-            retry()
+            markRetry()
+            retry(nextRetryMs())
         }
     }
     // Real device settings, persisted by the Waveshare. No screen taps.
@@ -506,12 +532,19 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             val contents = message.removePrefix("GC8|1|S|")
             if (contents == "END") {
                 rebuildDeviceSummary()
-                status("Waveshare status refreshed")
+                status(if (reportedDisplayState != null)
+                    "Waveshare settings and diagnostics refreshed"
+                    else "Incomplete gauge status; tap Refresh to retry")
             } else {
                 val parts = contents.split('|', limit = 2)
                 if (parts.size == 2 && parts[0] in listOf(
                     "R", "B", "H", "L", "D", "C", "U", "M", "X", "P", "F"
-                )) deviceFields[parts[0]] = parts[1]
+                )) {
+                    // R is the first record of each snapshot. Never mix an
+                    // interrupted previous status with today's readback.
+                    if (parts[0] == "R") deviceFields.clear()
+                    deviceFields[parts[0]] = parts[1]
+                }
             }
             return
         }
@@ -665,8 +698,8 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                 if (g === gatt) gatt = null
                 if (!hadBondedAttempt) tryBondedFirst = true
                 if (autoReconnect) {
-                    retryCount = (retryCount + 1).coerceAtMost(6)
-                    retry(if (hadBondedAttempt) 1000L else if (retryCount < 2) 5000L else 20000L)
+                    markRetry()
+                    retry(if (hadBondedAttempt) 500L else nextRetryMs())
                 }
             }
         }
