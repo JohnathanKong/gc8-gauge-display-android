@@ -566,7 +566,12 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                         finished?.contains("|DEMO:") == true -> "Demo navigation"
                         else -> "Live navigation"
                     }
-                    if (kind != "Phone time" || statusCode != BluetoothGatt.GATT_SUCCESS) {
+                    // A successful GATT write is not proof a setting was
+                    // applied. For display controls, only the separate
+                    // Waveshare ACK/ERR notification can confirm the result.
+                    if ((kind != "Phone time" && kind != "Display setting" &&
+                         kind != "Device status request") ||
+                        statusCode != BluetoothGatt.GATT_SUCCESS) {
                         status(if (statusCode == BluetoothGatt.GATT_SUCCESS)
                             "$kind accepted by GC8 BLE."
                             else "$kind write failed (status $statusCode).")
