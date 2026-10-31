@@ -372,6 +372,8 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
             return
         }
         if (!isTest && message == lastSent && message != "GC8|1|START" &&
+            message != "GC8|1|SYS|GET" &&
+            !message.startsWith("GC8|1|CFG|") &&
             !message.startsWith("GC8|1|GARAGE|RESULT|")) {
             DriveLog.record(activity, "BLE_DUPLICATE", message)
             return
