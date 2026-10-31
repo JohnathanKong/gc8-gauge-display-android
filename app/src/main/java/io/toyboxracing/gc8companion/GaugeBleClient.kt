@@ -44,6 +44,16 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     @Volatile private var writable: BluetoothGattCharacteristic? = null
     private var garageEvents: BluetoothGattCharacteristic? = null
     private var linkInitialized = false
+    // These selected settings are updated ONLY from a complete firmware
+    // status snapshot, never optimistically from phone button taps.
+    data class DisplayState(
+        val rotationDegrees: Int,
+        val autoRotate: Boolean,
+        val brightnessPercent: Int,
+        val idleDimSeconds: Int
+    )
+    @Volatile private var reportedDisplayState: DisplayState? = null
+    fun displayState(): DisplayState? = reportedDisplayState
     private val deviceFields = linkedMapOf<String, String>()
     @Volatile private var deviceSummary = "Connect to the Waveshare, then tap Refresh device status."
     @Volatile private var settingResult = "No display setting sent yet."
@@ -51,6 +61,18 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
     fun deviceDiagnosticSummary(): String = deviceSummary
 
     private fun rebuildDeviceSummary() {
+        val angleData = deviceFields["R"]?.split(',')
+        val powerData = deviceFields["B"]?.split(',')
+        val angle = angleData?.getOrNull(0)?.toIntOrNull()
+        val auto = angleData?.getOrNull(1)
+        val brightness = powerData?.getOrNull(0)?.toIntOrNull()
+        val dimming = powerData?.getOrNull(1)?.toIntOrNull()
+        reportedDisplayState = if (angle in listOf(0, 90, 180, 270) &&
+            auto in listOf("0", "1") &&
+            brightness in listOf(40, 60, 75, 90, 100) &&
+            dimming in listOf(0, 60, 300, 900)
+        ) DisplayState(angle!!, auto == "1", brightness!!, dimming!!) else null
+
         fun valAt(key: String, n: Int) =
             deviceFields[key]?.split(',')?.getOrNull(n) ?: "?"
         fun flag(v: String) = when (v) { "1" -> "Yes"; "0" -> "No"; else -> "Unknown" }
@@ -632,6 +654,7 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
                 lastWriteMessage = null
                 lastSent = null
                 deviceFields.clear()
+                reportedDisplayState = null
                 deviceSummary = "Waveshare disconnected. Reconnect and refresh."
                 status("Disconnected (status $statusCode)")
                 val hadBondedAttempt = bondedAttempt
@@ -732,5 +755,8 @@ class GaugeBleClient(private val activity: Context, private val report: (String)
         garageEvents = null
         latestQueued = null
         linkInitialized = false
+        reportedDisplayState = null
+        deviceFields.clear()
+        deviceSummary = "Waveshare disconnected. Reconnect and refresh."
     }
 }
