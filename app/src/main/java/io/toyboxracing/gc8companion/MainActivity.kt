@@ -85,6 +85,11 @@ class MainActivity : Activity() {
     private var logSummary: TextView? = null
     private var deviceSummaryText: TextView? = null
     private var displaySettingText: TextView? = null
+    private var selectedDisplayText: TextView? = null
+    private val rotationButtons = mutableMapOf<Int, TextView>()
+    private val brightnessButtons = mutableMapOf<Int, TextView>()
+    private val idleButtons = mutableMapOf<Int, TextView>()
+    private var autoRotationButton: TextView? = null
     private var garageInputDraft: String? = null
 
     private fun dp(n: Int): Int = (n * resources.displayMetrics.density + 0.5f).toInt()
@@ -241,6 +246,11 @@ class MainActivity : Activity() {
         logSummary = null
         deviceSummaryText = null
         displaySettingText = null
+        selectedDisplayText = null
+        rotationButtons.clear()
+        brightnessButtons.clear()
+        idleButtons.clear()
+        autoRotationButton = null
         page.removeAllViews()
         titleText.text = arrayOf("GC8 Companion", "Navigation", "Garage", "Display & diagnostics")[currentTab]
         when (currentTab) {
@@ -503,54 +513,112 @@ class MainActivity : Activity() {
         note("This app does not know the garage's open/closed state or directly contact SmartThings or Meross. Your existing SmartThings routines handle door state and switch reset.")
     }
 
+    // Selection is rendered exclusively from the last COMPLETE snapshot
+    // returned by firmware. Button taps never pretend a setting applied.
+    private fun styleDisplayChoice(button: TextView, selected: Boolean) {
+        button.isSelected = selected
+        button.setTextColor(if (selected) Color.WHITE else cyan)
+        button.background = if (selected) shape(
+            intArrayOf(Color.rgb(28, 137, 234), Color.rgb(7, 89, 178)),
+            14, Color.rgb(117, 220, 255)
+        ) else shape(
+            intArrayOf(Color.rgb(13, 43, 77), Color.rgb(7, 28, 51)),
+            14, Color.rgb(35, 135, 223)
+        )
+        button.contentDescription = button.text.toString() +
+            if (selected) ", selected on Waveshare" else ", not selected"
+    }
+
+    private fun updateSelectedDisplayControls() {
+        val state = if (isConnected()) ble?.displayState() else null
+        for ((degrees, button) in rotationButtons)
+            styleDisplayChoice(button, state != null && !state.autoRotate &&
+                state.rotationDegrees == degrees)
+        autoRotationButton?.let {
+            styleDisplayChoice(it, state?.autoRotate == true)
+        }
+        for ((percent, button) in brightnessButtons)
+            styleDisplayChoice(button, state?.brightnessPercent == percent)
+        for ((seconds, button) in idleButtons)
+            styleDisplayChoice(button, state?.idleDimSeconds == seconds)
+
+        selectedDisplayText?.text = if (!isConnected()) {
+            "Not connected. Start the service to read saved gauge settings."
+        } else if (state == null) {
+            "Reading saved settings from Waveshare…"
+        } else {
+            val rotation = if (state.autoRotate)
+                "AUTO (currently ${state.rotationDegrees}°)"
+            else "${state.rotationDegrees}° locked"
+            val timeout = when (state.idleDimSeconds) {
+                0 -> "Off"
+                60 -> "1 min"
+                300 -> "5 min"
+                900 -> "15 min"
+                else -> "Unknown"
+            }
+            "ACTIVE ON GAUGE: $rotation  •  ${state.brightnessPercent}% brightness  •  Dim $timeout"
+        }
+    }
+
     private fun displayControls() {
         val settings = card()
         put(settings, heading("Waveshare display", "Adjust the gauge from your phone", "settings"), 12)
+        selectedDisplayText = label("Reading saved gauge settings…", 14f, green, true)
+        put(settings, selectedDisplayText!!, 15)
         put(settings, label("Orientation", 16f, text, true), 8)
         put(settings, label("Set an exact angle. The gauge remembers it after restarting. You never need to touch the rotated display.", 13f, muted), 12)
         val angles = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         for (degrees in listOf(0, 90, 180, 270)) {
-            angles.addView(action("$degrees°", false) {
+            val choice = action("$degrees°", false) {
                 if (!isConnected()) {
                     Toast.makeText(this, "Connect to the Waveshare first.", Toast.LENGTH_SHORT).show()
                 } else ble?.setDisplayRotation(degrees)
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                rightMargin = dp(4)
-            })
+            }
+            rotationButtons[degrees] = choice
+            angles.addView(choice, LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { rightMargin = dp(4) })
         }
         put(settings, angles, 12)
-        put(settings, action("Calibrate automatic rotation", false) {
+        autoRotationButton = action("Auto-rotate: calibrate with USB down", false) {
             if (!isConnected()) {
                 Toast.makeText(this, "Connect to the Waveshare first.", Toast.LENGTH_SHORT).show()
             } else ble?.calibrateDisplayAuto()
-        }, 8)
+        }
+        put(settings, autoRotationButton!!, 8)
         put(settings, label("Hold the gauge upright and still, with its USB port pointing down, before tapping Calibrate. Auto mode only changes in 90° steps.", 12.5f, muted), 14)
 
         put(settings, label("Brightness", 16f, text, true), 8)
         val brightness = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         for (percent in listOf(40, 60, 75, 90, 100)) {
-            brightness.addView(action("$percent%", false) {
+            val choice = action("$percent%", false) {
                 if (isConnected()) ble?.setDisplayBrightness(percent)
                 else Toast.makeText(this, "Connect first.", Toast.LENGTH_SHORT).show()
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                rightMargin = dp(3)
-            })
+            }
+            brightnessButtons[percent] = choice
+            brightness.addView(choice, LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { rightMargin = dp(3) })
         }
         put(settings, brightness, 14)
         put(settings, label("Dim the screen when navigation is inactive", 16f, text, true), 8)
         val dim = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
         for ((caption, seconds) in listOf("Off" to 0, "1 min" to 60, "5 min" to 300, "15 min" to 900)) {
-            dim.addView(action(caption, false) {
+            val choice = action(caption, false) {
                 if (isConnected()) ble?.setDisplayIdleDim(seconds)
                 else Toast.makeText(this, "Connect first.", Toast.LENGTH_SHORT).show()
-            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
-                rightMargin = dp(3)
-            })
+            }
+            idleButtons[seconds] = choice
+            dim.addView(choice, LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f
+            ).apply { rightMargin = dp(3) })
         }
         put(settings, dim, 12)
         displaySettingText = label(ble?.displaySettingsStatus() ?: "Start the GC8 connection service.", 13f, muted)
         put(settings, displaySettingText!!, 0)
         put(page, settings, 14)
+        updateSelectedDisplayControls()
 
         val diagnostics = card()
         put(diagnostics, heading("Live gauge diagnostics", "Reported by the Waveshare over Bluetooth", "logs"), 12)
@@ -698,6 +766,7 @@ class MainActivity : Activity() {
         garageStateText?.text = garageStatusLabel()
         deviceSummaryText?.text = ble?.deviceDiagnosticSummary() ?: "Connection service is not running."
         displaySettingText?.text = ble?.displaySettingsStatus() ?: "Connection service is not running."
+        updateSelectedDisplayControls()
     }
 
     override fun onResume() {
