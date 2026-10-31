@@ -82,6 +82,8 @@ class MainActivity : Activity() {
     private var garageStateText: TextView? = null
     private var logPreview: TextView? = null
     private var logSummary: TextView? = null
+    private var deviceSummaryText: TextView? = null
+    private var displaySettingText: TextView? = null
     private var garageInputDraft: String? = null
 
     private fun dp(n: Int): Int = (n * resources.displayMetrics.density + 0.5f).toInt()
@@ -236,8 +238,10 @@ class MainActivity : Activity() {
         garageStateText = null
         logPreview = null
         logSummary = null
+        deviceSummaryText = null
+        displaySettingText = null
         page.removeAllViews()
-        titleText.text = arrayOf("GC8 Companion", "Navigation", "Garage", "Diagnostics")[currentTab]
+        titleText.text = arrayOf("GC8 Companion", "Navigation", "Garage", "Display & diagnostics")[currentTab]
         when (currentTab) {
             0 -> home()
             1 -> navigation()
@@ -377,6 +381,11 @@ class MainActivity : Activity() {
         }, 0)
         put(page, device, 14)
 
+        val display = card()
+        put(display, heading("Display controls", "Rotation, brightness, diagnostics on your phone", "settings"), 12)
+        put(display, action("Open display controls", false) { showTab(3) }, 0)
+        put(page, display, 14)
+
         val nav = card()
         put(nav, heading("Google Maps", "Turn instructions from phone notifications", "nav"), 12)
         put(nav, label(if (listenerAllowed()) "Notification access granted" else "Notification access not enabled",
@@ -492,8 +501,73 @@ class MainActivity : Activity() {
         note("This app does not know the garage's open/closed state or directly contact SmartThings or Meross. Your existing SmartThings routines handle door state and switch reset.")
     }
 
+    private fun displayControls() {
+        val settings = card()
+        put(settings, heading("Waveshare display", "Adjust the gauge from your phone", "settings"), 12)
+        put(settings, label("Orientation", 16f, text, true), 8)
+        put(settings, label("Set an exact angle. The gauge remembers it after restarting. You never need to touch the rotated display.", 13f, muted), 12)
+        val angles = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for (degrees in listOf(0, 90, 180, 270)) {
+            angles.addView(action("$degrees°", false) {
+                if (!isConnected()) {
+                    Toast.makeText(this, "Connect to the Waveshare first.", Toast.LENGTH_SHORT).show()
+                } else ble?.setDisplayRotation(degrees)
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                rightMargin = dp(4)
+            })
+        }
+        put(settings, angles, 12)
+        put(settings, action("Calibrate automatic rotation", false) {
+            if (!isConnected()) {
+                Toast.makeText(this, "Connect to the Waveshare first.", Toast.LENGTH_SHORT).show()
+            } else ble?.calibrateDisplayAuto()
+        }, 8)
+        put(settings, label("Hold the gauge upright and still, with its USB port pointing down, before tapping Calibrate. Auto mode only changes in 90° steps.", 12.5f, muted), 14)
+
+        put(settings, label("Brightness", 16f, text, true), 8)
+        val brightness = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for (percent in listOf(40, 60, 75, 90, 100)) {
+            brightness.addView(action("$percent%", false) {
+                if (isConnected()) ble?.setDisplayBrightness(percent)
+                else Toast.makeText(this, "Connect first.", Toast.LENGTH_SHORT).show()
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                rightMargin = dp(3)
+            })
+        }
+        put(settings, brightness, 14)
+        put(settings, label("Dim the screen when navigation is inactive", 16f, text, true), 8)
+        val dim = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL }
+        for ((caption, seconds) in listOf("Off" to 0, "1 min" to 60, "5 min" to 300, "15 min" to 900)) {
+            dim.addView(action(caption, false) {
+                if (isConnected()) ble?.setDisplayIdleDim(seconds)
+                else Toast.makeText(this, "Connect first.", Toast.LENGTH_SHORT).show()
+            }, LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f).apply {
+                rightMargin = dp(3)
+            })
+        }
+        put(settings, dim, 12)
+        displaySettingText = label(ble?.displaySettingsStatus() ?: "Start the GC8 connection service.", 13f, muted)
+        put(settings, displaySettingText!!, 0)
+        put(page, settings, 14)
+
+        val diagnostics = card()
+        put(diagnostics, heading("Live gauge diagnostics", "Reported by the Waveshare over Bluetooth", "logs"), 12)
+        deviceSummaryText = label(ble?.deviceDiagnosticSummary() ?: "Connect to the Waveshare to read diagnostics.", 14f, text).apply {
+            typeface = Typeface.MONOSPACE
+            setTextIsSelectable(true)
+        }
+        put(diagnostics, deviceSummaryText!!, 12)
+        put(diagnostics, action("Refresh device status") {
+            if (isConnected()) ble?.requestDeviceStatus()
+            else Toast.makeText(this, "Connect to the Waveshare first.", Toast.LENGTH_SHORT).show()
+        }, 0)
+        put(page, diagnostics, 16)
+        note("A submitted HID report is not confirmation that Gemini launched. Controls and values only work when Companion GATT is connected.")
+    }
+
     private fun logs() {
-        hero("DIAGNOSTICS", "Drive logs", "Existing local tools and captured notifications")
+        hero("DISPLAY / DIAGNOSTICS", "Gauge settings", "Everything on your phone, not the tiny gauge")
+        displayControls()
         val save = card()
         put(save, heading("Drive diagnostics", "Save event history to a local file", "logs"), 11)
         logSummary = label(DriveLog.summary(this), 13f, muted)
@@ -620,6 +694,8 @@ class MainActivity : Activity() {
             setTextColor(if (isConnected()) green else muted)
         }
         garageStateText?.text = garageStatusLabel()
+        deviceSummaryText?.text = ble?.deviceDiagnosticSummary() ?: "Connection service is not running."
+        displaySettingText?.text = ble?.displaySettingsStatus() ?: "Connection service is not running."
     }
 
     override fun onResume() {
@@ -627,7 +703,10 @@ class MainActivity : Activity() {
         ContextCompat.registerReceiver(this, bridgeReceiver,
             IntentFilter(Gc8ConnectionService.ACTION_STATUS), ContextCompat.RECEIVER_NOT_EXPORTED)
         lastBleMessage = Gc8ConnectionService.latestStatus
-        if (::page.isInitialized) showTab(currentTab)
+        if (::page.isInitialized) {
+            showTab(currentTab)
+            if (currentTab == 3 && isConnected()) ble?.requestDeviceStatus()
+        }
     }
 
     override fun onPause() {
